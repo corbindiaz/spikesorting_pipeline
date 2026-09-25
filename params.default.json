@@ -1,0 +1,86 @@
+{
+    "job_kwargs": {
+        "n_jobs": -1,
+        "progress_bar": true,
+        "pool_engine": "thread",
+        "chunk_duration": "1s"
+    },
+    "diagnostic": {
+        "print_time_computation_graph": true,
+        "print_terminal_pdf": true
+    },
+    "verbose_inventory": false,
+    "preprocess": {
+        "split_by_shank": false,
+
+        "trimming": {
+            "trim_recording": false,
+            "start": null,
+            "end": null
+        },
+
+        "bandpass_filter": {
+            "freq_min": 300,
+            "freq_max": 6000
+        },
+
+        "car": {
+            "car_reference": "global",
+            "car_operator": "median"
+        },
+
+        "bad_channels": {
+            "detect_bad_channels_method": "coherence+psd",
+            "coh_psd_nneighbors": 11,
+            "coh_psd_hf_threshold": 0.02,
+            "coh_psd_dead_threshold": -0.5,
+            "coh_psd_noise_threshold": 1,
+            "coh_psd_out_threshold": -0.3,
+            "coh_psd_nyquist": 0.8,
+            "bad_channel_limit": 0.34,
+            "remove_bad_channels": true
+        },
+
+        "motion": {
+            "n_rows_in_scale": 9.0,
+            "step_over_scale": 0.32,
+
+            "max_win_step_fraction": 0.15,
+            "max_win_scale_fraction": 0.15,
+            "min_win_scale_um": 40.0,
+            "min_win_step_um": 6.0,
+            "min_pitch_difference_um": 0.05,
+            "min_win_step_pitch_fraction": 0.5,
+            "max_step_scale_fraction": 0.55,
+            "fallback_step_over_scale": 0.35,
+
+            "motion_overwrite": true
+        }
+    },
+    "kilosort": {
+        "do_correction": true
+    },
+    "postprocess": null,
+    "export": {
+        "phy": {
+            "qm_column_order": null,
+            "tm_column_order": null,
+            "export_quality_metrics": true,
+            "export_template_metrics": true,
+            "test_phy": false,
+            "compute_pc_features": true,
+            "compute_amplitudes": true,
+            "copy_binary": true,
+            "use_relative_path": true,
+            "remove_if_exists": true,
+            "progress_bar": true,
+            "verbose_phy": true
+        },
+
+        "bombcell": {
+            "save_unit_plots": true,
+            "save_plot_details": false
+        }
+    },
+    "curation": null
+}
