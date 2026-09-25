@@ -7,7 +7,7 @@ Pipeline for spike sorting using Kilosort4. Code attributions from Corbin Diaz, 
 1. Clone the repo:
 
    ```
-   git clone <your-repo-url>
+   git clone https://github.com/corbindiaz/spikesorting_pipeline.git
    cd spikesorting_pipeline
    ```
 
