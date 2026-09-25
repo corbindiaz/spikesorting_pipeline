@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_pdf import PdfPages
 
-PARAMS_PATH = Path(__file__).resolve().parent / 'params.json'
+PARAMS_PATH = 'params.json'
 
 with open(PARAMS_PATH) as f:
     params = json.load(f)
