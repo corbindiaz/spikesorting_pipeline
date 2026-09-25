@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 # One-time setup after cloning the repo.
 set -e
 
