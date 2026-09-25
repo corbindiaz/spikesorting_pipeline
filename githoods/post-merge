@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs automatically after `git pull` / `git merge`.
+# Keeps params.json in sync with params.default.json without
+# clobbering values the user has already customized.
+
+python3 merge_params.py
