@@ -7,6 +7,7 @@ import warnings
 
 from utils import timed, recording_summary
 
+import torch
 from kilosort.run_kilosort import close_logger
 import spikeinterface.full as si
 import spikeinterface.sorters as ss
@@ -67,6 +68,11 @@ def sorter_kilosort(
             with timed(kilosort_time, "Sorting"):
                 print()
                 print("Running Kilosort4...")
+                print("CUDA available:", torch.cuda.is_available())
+                print("CUDA version:", torch.version.cuda)
+                
+                if torch.cuda.is_available():
+                    print("GPU:", torch.cuda.get_device_name(0))
                 sorting = ss.run_sorter(
                     "kilosort4",
                     recording,
