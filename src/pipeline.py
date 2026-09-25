@@ -1,6 +1,7 @@
 import io
 import re
 import sys
+import json
 import textwrap
 import traceback
 import time
@@ -23,86 +24,10 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_pdf import PdfPages
 
-params = {
-    'job_kwargs': {'n_jobs': -1,'progress_bar': True, 'pool_engine':"thread",'chunk_duration':"1s"},
-    'diagnostic':{'print_time_computation_graph':True, 'print_terminal_pdf': True},
-    'verbose_inventory': False,  # True = print full inventory for every group
-    'preprocess': {
-        'split_by_shank':False,
-        
-        'trimming':{
-            'trim_recording': True,
-            'start': 2000,
-            'end': None
-        },
-        
-        'bandpass_filter': {
-            'freq_min': 300,
-            'freq_max': 6000
-        },
-        
-        'car':{
-            'car_reference': "global",
-            'car_operator': "median",
-        },
-        
-        'bad_channels':{
-            'detect_bad_channels_method': "coherence+psd",
-            'coh_psd_nneighbors': 11,
-            'coh_psd_hf_threshold': 0.02,
-            'coh_psd_dead_threshold': -0.5,
-            'coh_psd_noise_threshold': 1,
-            'coh_psd_out_threshold': -0.3,
-            'coh_psd_nyquist': 0.8,
-            'bad_channel_limit': 0.34, # If 'remove_bad_channels' = True and number of bad channels exceeds this %, error is raised.
-            'remove_bad_channels': False,
-        },
-        
-        'motion': {
-            'n_rows_in_scale': 9.0,              # Number of electrode spacings in each motion window. ******
-            'step_over_scale': 0.32,             # Window step as a fraction of window width. ******** 
-            
-            # You shouldn't need to change these
-            'max_win_step_fraction': 0.15,       # Maximum step as a fraction of probe span.
-            'max_win_scale_fraction': 0.15,      # Maximum window width as a fraction of probe span.
-            'min_win_scale_um': 40.0,            # Minimum motion window width (µm).
-            'min_win_step_um': 6.0,              # Minimum motion window step (µm).
-            'min_pitch_difference_um': 0.05, 
-            'min_win_step_pitch_fraction': 0.5,  # Minimum step as a fraction of electrode pitch.
-            'max_step_scale_fraction': 0.55,     # Maximum step as a fraction of window width.
-            'fallback_step_over_scale': 0.35,    # Step as a fraction of window width if the maximum is exceeded.
-            
-            'motion_overwrite': True
-        },
-        
-    },
-    'kilosort': {
-        "do_correction": True
-    },
-    'postprocess': None,
-    'export': {
-        'phy':{
-            'qm_column_order': None,  # ONLY those QM columns are exported. If None: all QM (except num_spikes, firing_rate).
-            'tm_column_order': None,  # ONLY those TM columns. If None: all template_metrics columns.
-            'export_quality_metrics': True,
-            'export_template_metrics': True,
-            'test_phy': False,  # Skips exporting phy and waits 3sec, used for testing
-            'compute_pc_features': True,  # Should stay True for legitmate Phy export
-            'compute_amplitudes': True,  # Should stay True for legitmate Phy export
-            'copy_binary': True,  # Should stay True for legitmate Phy export
-            'use_relative_path': True,  # Should stay True for legitmate Phy export
-            'remove_if_exists': True,  # overwrite existing phy/ folder on re-run
-            'progress_bar': True,
-            'verbose_phy': True,
-        },
-        
-        'bombcell':{
-        'save_unit_plots': True,
-        'save_plot_details': False  # if True, BombCell will generate and save additional plots (without discernable names).
-        }
-    },
-    'curation': None
-}
+PARAMS_PATH = Path(__file__).resolve().parent / 'params.json'
+
+with open(PARAMS_PATH) as f:
+    params = json.load(f)
 
 STEPS = {
     "preprocess": preprocess,

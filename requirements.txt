@@ -1,0 +1,13 @@
+numpy==2.4.6
+pandas==3.0.5
+probeinterface==0.3.2
+scikit-learn==1.9.1
+matplotlib==3.11.2
+ipython==8.12.3
+tqdm==4.70.1
+zarr==2.18.7
+spikeinterface==0.104.9
+kilosort==4.1.7
+bombcell==0.89
+slay==0.1.0a0
+pyyaml==6.0.3
