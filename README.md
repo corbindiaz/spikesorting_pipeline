@@ -11,11 +11,11 @@ Pipeline for spike sorting using Kilosort4. Code attributions from Corbin Diaz, 
    cd spikesorting_pipeline
    ```
 
-2. Run the setup script. You will need conda / miniconda installed:
+2. Setup your environment. You will need conda / miniconda installed:
 
    ```
-   chmod +x setup.sh
-   ./setup.sh
+   bash +x setup.sh
+   conda env create -f environment.yml
    ```
 
    This will:

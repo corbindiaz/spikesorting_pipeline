@@ -14,10 +14,6 @@ else
     echo "params.json already exists, leaving it untouched"
 fi
 
-echo "== Creating conda environment =="
-conda env create -f environment.yml
-
 echo ""
 echo "Setup complete."
-echo "Run:  conda activate spikesort"
 echo "params.json will auto-update with new parameters on every 'git pull'."
