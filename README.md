@@ -14,7 +14,7 @@ Pipeline for spike sorting using Kilosort4. Code attributions from Corbin Diaz, 
 2. Setup your environment. You will need conda / miniconda installed:
 
    ```
-   bash setup.sh
+   .\setup.ps1
    conda env create -f environment.yml
    ```
 
