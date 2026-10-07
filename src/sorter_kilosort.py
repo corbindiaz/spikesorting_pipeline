@@ -33,6 +33,10 @@ def sorter_kilosort(
     motion_plots_folder.mkdir(parents=True, exist_ok=True)
 
     kilosort_params = params["kilosort"]
+    
+    kilosort_params['n_jobs'] = params['job_kwargs']['n_jobs']
+    kilosort_params['progress_bar'] = params['job_kwargs']['progress_bar']
+    kilosort_params['chunk_duration'] = params['job_kwargs']['chunk_duration']
 
     preprocessed_recording_paths = sorted(
         p for p in preprocessed_folder.iterdir()
