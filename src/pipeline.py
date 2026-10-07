@@ -284,14 +284,14 @@ def expand_rest(steps, parser, SUB_STEPS = SUB_STEPS):
     return expanded
 
 def run_export(
-    recording,
+    recording_path_,
     output_folder,
     params,
     time_master,
     step,
 ):
     time_master = export_phy(
-        recording=recording,
+        recording_path_=recording_path_,
         output_folder=output_folder,
         params=params,
         time_master=time_master,
@@ -299,7 +299,7 @@ def run_export(
     )
 
     time_master = export_bombcell(
-        recording=recording,
+        recording_path_=recording_path_,
         output_folder=output_folder,
         params=params,
         time_master=time_master,
