@@ -28,6 +28,12 @@ Pipeline for spike sorting using Kilosort4. Code attributions from Corbin Diaz, 
    conda activate spikesort
    ```
 
+   To ensure proper setup for using a GPU for Kilosort4, run the following command
+
+   ```
+   python -m pip install torch==2.9.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+   ```
+
 ## Running the Pipeline
 
 This pipeline currently runs on SpikeGLX recordings. To run, specify where this recording lives in the command line, along with where you want results outputted:
