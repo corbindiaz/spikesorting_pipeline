@@ -20,7 +20,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     
     plots = output_folder / "plots"
     motion_plots_folder = plots / "motion"
-    plots_pre = plots / "preprocessing"
+    plots_pre = plots / "cleaning"
     plots.mkdir(parents=True, exist_ok=True)
     motion_plots_folder.mkdir(parents=True, exist_ok=True)
     plots_pre.mkdir(parents=True, exist_ok=True)
