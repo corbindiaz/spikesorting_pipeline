@@ -36,7 +36,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     print(recording)
 
     
-    save_probe_figure(recording, plots_pre, 'probe_map_raw.png')
+    save_probe_figure(recording, plots_pre, 'probe_map_raw')
     print(f"Probe Map saved to: {plots_pre / 'probe_map_raw.png'}")
     
     # Time Shift
@@ -131,7 +131,8 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     channel_label_csv.to_csv(channel_label_path, index=False)
                     print(f"Channel labels saved to: {channel_label_path}")
                     
-                    bad_channels_diagnostic(temp_group, channel_labels, plots_pre, params_bad, name=str(temp_group_name))
+                    if params_bad['generate_diagnostics']:
+                        bad_channels_diagnostic(temp_group, channel_labels, plots_pre / "bad_channel_diagnostics", params_bad, name=str(temp_group_name))
 
                     if params_bad['remove_bad_channels']:
                         if len(bad_channel_ids) > 0:
@@ -422,6 +423,7 @@ def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
     chunks = _chunks(rec, n_chunks, chunk_s)
     feats = _features(chunks, fs, order, p)
 
+    print('Performing bad channel diagnostics...')
     # Stability across random chunk draws; sensitivity to each threshold
     runs = np.array([_detect(rec, p, s) for s in seeds])
     frac = (runs != "good").mean(0)
@@ -439,6 +441,7 @@ def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
                            "label": labels, **(feats or {}), "frac_runs_bad": frac})
     report.to_csv(out / "channel_report.csv", index=False)
 
+    print(f'Saving bad channel diagnostic figures to {out_dir}...')
     # Overview figure
     fig = plt.figure(figsize=(14, 11))
     gs = fig.add_gridspec(2, 3)

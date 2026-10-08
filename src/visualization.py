@@ -9,7 +9,7 @@ import numpy as np
 
 from sklearn.decomposition import PCA
 
-import spikeinterface.core as si
+import spikeinterface.widgets as sw
 from probeinterface.plotting import plot_probe
 
 import bombcell as bc
@@ -113,7 +113,7 @@ def save_probe_figure(
     fig, ax = plt.subplots(figsize=(width_in, height_in))
  
     if use_widget:
-        si.plot_probe_map(
+        sw.plot_probe_map(
             rec,
             color_channels=color_channels,
             with_channel_ids=with_channel_ids,

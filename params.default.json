@@ -39,7 +39,8 @@
             "coh_psd_nyquist": 0.8,
             "bad_channel_limit": 0.34,
             "remove_bad_channels": true,
-            "debug_mode": false
+            "debug_mode": false,
+            "generate_diagnostics": true
         },
 
         "motion": {
