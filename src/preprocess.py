@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import time
+from tqdm.auto import tqdm
 
 import numpy as np
 import pandas as pd
@@ -429,12 +430,13 @@ def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
     frac = (runs != "good").mean(0)
     base = runs[0]
     sweep = []
-    for k, pk in THRESH.items():
-        for d in (-0.2, -0.1, 0.1, 0.2):
-            lab = _detect(rec, p, seeds[0], **{k: p[pk] + d})
-            counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
-            sweep.append({"param": k, "value": round(p[pk] + d, 3), **counts.to_dict(),
-                          "n_changed_vs_seeded_base": int((lab != base).sum())})
+    steps = [(k, pk, d) for k, pk in THRESH.items() for d in (-0.2, -0.1, 0.1, 0.2)]
+    sweep = []
+    for k, pk, d in tqdm(steps, desc=f"[{name}] threshold sweep"):
+        lab = _detect(rec, p, seeds[0], **{k: p[pk] + d})
+        counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
+        sweep.append({"param": k, "value": round(p[pk] + d, 3), **counts.to_dict(),
+                      "n_changed_vs_seeded_base": int((lab != base).sum())})
     pd.DataFrame(sweep).to_csv(out / "threshold_sweep.csv", index=False)
 
     report = pd.DataFrame({"channel_id": rec.channel_ids, "x_um": locs[:, 0], "depth_um": depth,
