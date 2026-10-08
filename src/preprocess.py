@@ -154,10 +154,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             temp_group = temp_group.remove_channels(bad_channel_ids)
                         else:
                             print("No bad channels to remove.")
-
-                    save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
-                    print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
-                            
+     
                     params_band = params_pre['bandpass_filter']
                     print("Bandpass filtering...")
                     temp_group = spre.bandpass_filter(
@@ -435,7 +432,7 @@ def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
     sweep = []
     steps = [(k, pk, d) for k, pk in THRESH.items() for d in (-0.2, -0.1, 0.1, 0.2)]
     sweep = []
-    for k, pk, d in tqdm(steps, desc=f"[{name}] threshold sweep"):
+    for k, pk, d in tqdm(steps, desc=f"threshold sweep"):
         lab = _detect(rec, p, seeds[0], **{k: p[pk] + d})
         counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
         sweep.append({"param": k, "value": round(p[pk] + d, 3), **counts.to_dict(),
