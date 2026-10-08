@@ -102,6 +102,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         noisy_channel_threshold=params_bad['coh_psd_noise_threshold'],
                         outside_channel_threshold=params_bad['coh_psd_out_threshold'],
                         nyquist_threshold=params_bad['coh_psd_nyquist'],
+                        num_random_chunks=1000,
                     )
                     bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
                     print(f"Detected {bad} bad channels...")
