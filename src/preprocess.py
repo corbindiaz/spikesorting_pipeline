@@ -99,7 +99,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
                 if not params_pre['split_by_shank']:
                     print("NOTE: Temporarily splitting by shank to perform certain preprocessing steps.")
-                    temporary_groups = group.recording.split_by("group")
+                    temporary_groups = group.split_by("group")
                 else:
                     temporary_groups = {group_name:group}
                     
