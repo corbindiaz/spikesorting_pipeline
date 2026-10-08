@@ -20,6 +20,11 @@ plt.ioff()
 from matplotlib import cm
 from matplotlib.patches import Patch
 
+def save_widget(w, path, dpi=150):
+    fig = w.figure
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
 def save_probe_figure(rec, out_dir, basename="probe_layout"):
     probe = rec.get_probe()
 

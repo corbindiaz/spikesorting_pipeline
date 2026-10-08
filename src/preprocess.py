@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from utils import timed, recording_summary
-from visualization import plot_peak_localization
+from visualization import plot_peak_localization, save_widget
 
 import spikeinterface.full as si
 import spikeinterface.preprocessing as spre
@@ -20,8 +20,10 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     
     plots = output_folder / "plots"
     motion_plots_folder = plots / "motion"
+    plots_pre = plots / "preprocessing"
     plots.mkdir(parents=True, exist_ok=True)
     motion_plots_folder.mkdir(parents=True, exist_ok=True)
+    plots_pre.mkdir(parents=True, exist_ok=True)
 
     if params_pre['bad_channels']['debug_mode']:
         print("WARNING:")
@@ -30,6 +32,9 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     recording = si.read_spikeglx(recording_path_, stream_id="imec0.ap")
     print(recording)
 
+    print(f"Saving Probe Map to {str(plots_pre / "probe_map_raw.png")}...")
+    w = si.plot_probe_map(recording, with_channel_ids=False, backend="matplotlib")
+    save_widget(w, plots_pre / "probe_map_raw.png")
     
     # Time Shift
     print("Shifting time to ensure 0sec start...")
@@ -72,10 +77,19 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         print("-" * 80)
         print(f"Preprocessing shank {group_name}")
         print(f"Channels: {group.get_num_channels()}")
+        
 
         try:
             # Cleaning (Phase-shift, Filtering, Bad Channel Detection, CAR)
             with timed(preprocessing_time, "Cleaning"):
+                
+                w = si.plot_traces(group, time_range=(10, 10.5), mode="map",
+                                     order_channel_by_depth=True, return_in_uV=True,
+                                     backend="matplotlib")
+                
+                save_widget(w, plots_pre / f"{recording_name}_traces_raw.png")
+                print(f"Raw traces saved to: {plots_pre / f'{recording_name}_traces_raw.png'}")
+                
                 print("Phase-shift correcting...")
                 group = spre.phase_shift(group)
 
@@ -131,16 +145,22 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         else:
                             print("No bad channels to remove.")
                             
+                    color_map = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "purple"}
+                    colors = [color_map.get(l, "gray") for l in channel_labels]
+
+                    w = si.plot_probe_map(temp_group, color_channels=colors, backend="matplotlib")
+                    save_widget(w, plots_pre / f"{temp_group_name}_bad_channels_map.png")
+                    print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
+                            
                     params_band = params_pre['bandpass_filter']
                     print("Bandpass filtering...")
-                    group = spre.bandpass_filter(
-                        group,
+                    temp_group = spre.bandpass_filter(
+                        temp_group,
                         freq_min=params_band['freq_min'],
                         freq_max=params_band['freq_max'],
                     )
 
                     params_car = params_pre['car']
-                    print()
                     print("Applying common median reference...")
                     temp_group = spre.common_reference(
                         temp_group,
@@ -155,7 +175,13 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                 print("-"*40)
                 print("Regrouping shanks into wholeprobe...")
                 group = si.aggregate_channels(recording_list = list(temporary_groups_list))
-
+                
+            w = si.plot_traces(group, time_range=(10, 10.5), mode="map",
+                                     order_channel_by_depth=True, return_in_uV=True,
+                                     backend="matplotlib")
+            
+            save_widget(w, plots_pre / f"{recording_name}_traces_cleaned.png")
+            print(f"Cleaned traces plot saved to: {plots_pre / f'{recording_name}_traces_cleaned.png'}")
             print(f"Cleaning time {recording_name}: {preprocessing_time['Cleaning']:.2f} seconds\n")
 
             if params_bad['debug_mode']:
@@ -163,6 +189,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                 return time_master
 
             # Motion
+            group_pre_motion = group
             params_motion = params_pre["motion"]
             if params_motion['motion_overwrite'] and motion_folder.exists():
                 shutil.rmtree(motion_folder)
@@ -244,10 +271,11 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         print("Motion computation failed; saving uncorrected recording.")
 
                     if motion_info is not None:
-                        print("Saving motion plot...")
+                        print("Saving motion plots...")
                         try:
                             motion_plot_path = motion_plots_folder / f"{recording_name}_motion_correction.png"
-                            probe_plot_path = motion_plots_folder / f"{recording_name}_Peak_Locations.png"
+                            probe_plot_path = motion_plots_folder / f"{recording_name}_peak_locations.png"
+                            peak_plot_path = motion_plots_folder / f"{recording_name}_peak_activity_all.png"
                             locations = group.get_channel_locations()
                             depth_min = np.min(locations[:, 1])
                             depth_max = np.max(locations[:, 1])*1.1
@@ -266,6 +294,15 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             
                             plot_peak_localization(recording, motion_info, probe_plot_path)
                             print(f"Peak locations plot saved to: {probe_plot_path}")
+                            
+                            peaks = motion_info["peaks"]
+
+                            # whole-recording map: where is the activity?
+                            w = si.plot_peak_activity(group_pre_motion, peaks, bin_duration_s=None,
+                                                    with_interpolated_map=True, backend="matplotlib")
+                            save_widget(w, peak_plot_path)
+                            print(f"Peak Activity plot saved to:  {peak_plot_path}")
+
                         except Exception as e:
                             print(f"Error saving motion plots for {recording_name}: {e}")
                 except Exception as e:
