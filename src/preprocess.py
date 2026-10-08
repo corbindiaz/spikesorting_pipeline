@@ -103,11 +103,11 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         outside_channel_threshold=params_bad['coh_psd_out_threshold'],
                         nyquist_threshold=params_bad['coh_psd_nyquist'],
                     )
-                bad = len(group.channel_ids) - len(channel_labels[channel_labels == 'good'])
+                    bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
                     print(f"Detected {bad} bad channels...")
 
                     channel_label_csv = pd.DataFrame({
-                    "channel_id": group.channel_ids,
+                    "channel_id": temp_group.channel_ids,
                     "channel_label": channel_labels,
                 })
                     channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
