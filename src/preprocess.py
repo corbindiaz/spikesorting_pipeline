@@ -489,6 +489,16 @@ def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
 
     _plot_traces(chunks[0], fs, labels, order, out / "traces.png", n_examples)
 
-    print(f"[{name}] labels: {pd.Series(labels).value_counts().to_dict()} | "
-          f"unstable channels: {int(((frac > 0) & (frac < 1)).sum())} | output: {out}")
+    ids = np.asarray(rec.channel_ids)
+    print(f"Channel labels: {pd.Series(labels).value_counts().to_dict()}")
+
+    for lab in ("dead", "noise", "out"):
+        flagged = ids[labels == lab]
+        if len(flagged):
+            print(f"  {lab} ({len(flagged)}): {list(flagged)}")
+    if (labels == "good").all():
+        print("  no non-good channels")
+
+    unstable = ids[(frac > 0) & (frac < 1)]
+    print(f"Unstable channels ({len(unstable)}): {list(unstable)}")
     return report
