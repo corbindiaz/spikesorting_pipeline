@@ -7,6 +7,7 @@ ipython==8.12.3
 tqdm==4.70.1
 zarr==2.18.7
 spikeinterface==0.104.9
+ibl-neuropixel
 kilosort==4.1.7
 bombcell==0.89
 slay==0.1.0a0

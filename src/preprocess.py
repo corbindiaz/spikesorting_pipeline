@@ -1,3 +1,4 @@
+from pathlib import Path
 import shutil
 import time
 
@@ -10,6 +11,8 @@ from visualization import plot_peak_localization, save_widget, save_probe_figure
 import spikeinterface.full as si
 import spikeinterface.preprocessing as spre
 from spikeinterface.sortingcomponents.motion import interpolate_motion
+from ibldsp.voltage import detect_bad_channels as ibl
+from scipy.signal import welch
 
 import matplotlib.pyplot as plt
 
@@ -127,6 +130,8 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
                     channel_label_csv.to_csv(channel_label_path, index=False)
                     print(f"Channel labels saved to: {channel_label_path}")
+                    
+                    bad_channels_diagnostic(temp_group, channel_labels, plots_pre, params_bad, name=str(temp_group_name))
 
                     if params_bad['remove_bad_channels']:
                         if len(bad_channel_ids) > 0:
@@ -317,3 +322,166 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
             #preprocessing_time["Other"] = max(0.0, total - accounted)
 
     return time_master
+
+"""Bad-channel debugging for the IBL coherence+psd detector.
+
+Call debug_bad_channels(...) right after spre.detect_bad_channels (before removal).
+Writes to <out_dir>/<name>/:
+  overview.png         IBL features vs depth (with thresholds), PSDs, label stability
+  traces.png           flagged channels next to their depth neighbours
+  channel_report.csv   per-channel label, IBL features, fraction of seeded runs flagged bad
+  threshold_sweep.csv  label counts when each threshold is nudged
+"""
+
+COLORS = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "purple"}
+# detect_bad_channels kwarg -> params_bad key
+THRESH = {
+    "dead_channel_threshold": "coh_psd_dead_threshold",
+    "noisy_channel_threshold": "coh_psd_noise_threshold",
+    "outside_channel_threshold": "coh_psd_out_threshold",
+}
+
+
+def _detect(rec, p, seed=None, **override):
+    """Rerun the detector with the pipeline's settings (optionally seeded / overridden)."""
+    kw = dict(
+        method=p["detect_bad_channels_method"],
+        n_neighbors=p["coh_psd_nneighbors"],
+        psd_hf_threshold=p["coh_psd_hf_threshold"],
+        nyquist_threshold=p["coh_psd_nyquist"],
+        num_random_chunks=100,
+        **{k: p[v] for k, v in THRESH.items()},
+    )
+    kw.update(override)
+    try:
+        _, labels = spre.detect_bad_channels(rec, seed=seed, **kw)
+    except TypeError:  # SpikeInterface version without `seed`
+        _, labels = spre.detect_bad_channels(rec, **kw)
+    return np.asarray(labels).astype(str)
+
+
+def _chunks(rec, n, dur_s, seed=0):
+    """n random chunks in uV, each (n_channels, n_samples)."""
+    m = int(dur_s * rec.get_sampling_frequency())
+    starts = np.sort(np.random.default_rng(seed).integers(0, rec.get_num_samples() - m, n))
+    g, o = (rec.get_channel_gains(), rec.get_channel_offsets()) if rec.has_scaled() else (1, 0)
+    return [(rec.get_traces(start_frame=int(s), end_frame=int(s) + m).astype("float32") * g + o).T
+            for s in starts]
+
+
+def _features(chunks, fs, order, p):
+    """Median IBL features across chunks, in recording channel order (None if ibldsp missing)."""
+    out = {k: [] for k in ("xcor_hf", "xcor_lf", "psd_hf")}
+    for c in chunks:
+        _, f = ibl(c[order] / 1e6, fs,  # IBL expects volts, depth-sorted
+                   similarity_threshold=(p["coh_psd_dead_threshold"], p["coh_psd_noise_threshold"]),
+                   psd_hf_threshold=p["coh_psd_hf_threshold"])
+        for k in out:
+            out[k].append(f[k])
+    return {k: np.median(v, 0)[np.argsort(order)] for k, v in out.items()}
+
+
+def _plot_traces(chunk, fs, labels, order, path, n, ctx=2, ms=30):
+    rank = np.argsort(order)
+    rows = [(l, i) for l in ("dead", "noise", "out") for i in np.where(labels == l)[0][:n]]
+    if not rows:
+        return
+    k = int(ms * fs / 1000)
+    t = np.arange(k) / fs * 1000
+    step = 2 * np.percentile(np.abs(chunk[:, :k]), 99)
+    fig, axes = plt.subplots(len(rows), 1, figsize=(9, 2.2 * len(rows)), squeeze=False)
+    for ax, (l, i) in zip(axes[:, 0], rows):
+        for j, ch in enumerate(order[max(rank[i] - ctx, 0): rank[i] + ctx + 1]):
+            hit = ch == i
+            ax.plot(t, chunk[ch, :k] + j * step, c=COLORS[l] if hit else "gray", lw=1.2 if hit else 0.7)
+        ax.set_title(f"{l}: channel index {i} (colored) with {ctx} depth neighbors each side", fontsize=8)
+        ax.set_yticks([])
+    axes[-1, 0].set_xlabel("ms")
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
+def bad_channels_diagnostic(rec, labels, out_dir, p, name="group",
+                       n_chunks=30, chunk_s=0.3, seeds=(0, 1, 2, 3, 4), n_examples=3):
+    """
+    rec    : recording given to detect_bad_channels (post phase_shift, pre filter/CAR)
+    labels : channel_labels returned by detect_bad_channels
+    p      : params['preprocess']['bad_channels'] dict
+    """
+    out = Path(out_dir) / name
+    out.mkdir(parents=True, exist_ok=True)
+    fs = rec.get_sampling_frequency()
+    locs = rec.get_channel_locations()
+    depth = locs[:, 1]
+    order = np.lexsort((locs[:, 0], depth))
+    labels = np.asarray(labels).astype(str)
+
+    chunks = _chunks(rec, n_chunks, chunk_s)
+    feats = _features(chunks, fs, order, p)
+
+    # Stability across random chunk draws; sensitivity to each threshold
+    runs = np.array([_detect(rec, p, s) for s in seeds])
+    frac = (runs != "good").mean(0)
+    base = runs[0]
+    sweep = []
+    for k, pk in THRESH.items():
+        for d in (-0.2, -0.1, 0.1, 0.2):
+            lab = _detect(rec, p, seeds[0], **{k: p[pk] + d})
+            counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
+            sweep.append({"param": k, "value": round(p[pk] + d, 3), **counts.to_dict(),
+                          "n_changed_vs_seeded_base": int((lab != base).sum())})
+    pd.DataFrame(sweep).to_csv(out / "threshold_sweep.csv", index=False)
+
+    report = pd.DataFrame({"channel_id": rec.channel_ids, "x_um": locs[:, 0], "depth_um": depth,
+                           "label": labels, **(feats or {}), "frac_runs_bad": frac})
+    report.to_csv(out / "channel_report.csv", index=False)
+
+    # Overview figure
+    fig = plt.figure(figsize=(14, 11))
+    gs = fig.add_gridspec(2, 3)
+    if feats:
+        panels = [("xcor_hf", [p["coh_psd_dead_threshold"], p["coh_psd_noise_threshold"]]),
+                  ("xcor_lf", [p["coh_psd_out_threshold"]]),
+                  ("psd_hf", [p["coh_psd_hf_threshold"]])]
+        for j, (key, lines) in enumerate(panels):
+            ax = fig.add_subplot(gs[0, j])
+            for lab, c in COLORS.items():
+                m = labels == lab
+                ax.scatter(feats[key][m], depth[m], s=8, c=c, label=f"{lab} ({m.sum()})")
+            for v in lines:
+                if v is not None:
+                    ax.axvline(v, ls="--", c="k", lw=0.8)
+            ax.set_title(key)
+            if j == 0:
+                ax.set_ylabel("depth (um)")
+                ax.legend(fontsize=8)
+
+    f, _ = welch(chunks[0], fs=fs, nperseg=1024, axis=1)
+    psd = np.mean([welch(c, fs=fs, nperseg=1024, axis=1)[1] for c in chunks], 0)
+    ax = fig.add_subplot(gs[1, :2])
+    g = labels == "good"
+    if g.any():
+        lo, med, hi = np.percentile(psd[g], [10, 50, 90], axis=0)
+        ax.fill_between(f, lo, hi, color=COLORS["good"], alpha=0.2)
+        ax.plot(f, med, c=COLORS["good"], lw=2, label="good median (10-90%)")
+    for lab in ("dead", "noise", "out"):
+        for j, i in enumerate(np.where(labels == lab)[0][:n_examples]):
+            ax.plot(f, psd[i], c=COLORS[lab], lw=1, label=lab if j == 0 else None)
+    ax.axvline(p["coh_psd_nyquist"] * fs / 2, ls="--", c="k", lw=0.8)
+    ax.set(xscale="log", yscale="log", xlabel="Hz", ylabel="PSD (uV^2/Hz)", title="PSD: flagged vs good")
+    ax.legend(fontsize=8)
+
+    ax = fig.add_subplot(gs[1, 2])
+    sc = ax.scatter(frac, depth, c=frac, s=8, vmin=0, vmax=1)
+    ax.set(xlabel="fraction of seeded runs flagged", ylabel="depth (um)", title="Label stability")
+    fig.colorbar(sc, ax=ax)
+    fig.tight_layout()
+    fig.savefig(out / "overview.png", dpi=150)
+    plt.close(fig)
+
+    _plot_traces(chunks[0], fs, labels, order, out / "traces.png", n_examples)
+
+    print(f"[{name}] labels: {pd.Series(labels).value_counts().to_dict()} | "
+          f"unstable channels: {int(((frac > 0) & (frac < 1)).sum())} | output: {out}")
+    return report
