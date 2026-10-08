@@ -82,53 +82,69 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     freq_max=params_band['freq_max'],
                 )
 
-                params_bad = params_pre['bad_channels']
-                print("Detecting bad channels...")
-                bad_channel_ids, channel_labels = spre.detect_bad_channels(
-                    group,
-                    method=params_bad['detect_bad_channels_method'],
-                    n_neighbors=params_bad['coh_psd_nneighbors'],
-                    psd_hf_threshold=params_bad['coh_psd_hf_threshold'],
-                    dead_channel_threshold=params_bad['coh_psd_dead_threshold'],
-                    noisy_channel_threshold=params_bad['coh_psd_noise_threshold'],
-                    outside_channel_threshold=params_bad['coh_psd_out_threshold'],
-                    nyquist_threshold=params_bad['coh_psd_nyquist'],
-                )
+                if not params_pre['split_by_shank']:
+                    print("NOTE: Temporarily splitting by shank to perform certain preprocessing steps.")
+                    temporary_groups = recording.split_by("group")
+                else:
+                    temporary_groups = {group_name:group}
+                    
+                temporary_groups_list = []
+                for i, (temp_group_name, temp_group) in enumerate(temporary_groups.items()):
+                    
+                    params_bad = params_pre['bad_channels']
+                    print("Detecting bad channels...")
+                    bad_channel_ids, channel_labels = spre.detect_bad_channels(
+                        temp_group,
+                        method=params_bad['detect_bad_channels_method'],
+                        n_neighbors=params_bad['coh_psd_nneighbors'],
+                        psd_hf_threshold=params_bad['coh_psd_hf_threshold'],
+                        dead_channel_threshold=params_bad['coh_psd_dead_threshold'],
+                        noisy_channel_threshold=params_bad['coh_psd_noise_threshold'],
+                        outside_channel_threshold=params_bad['coh_psd_out_threshold'],
+                        nyquist_threshold=params_bad['coh_psd_nyquist'],
+                    )
                 bad = len(group.channel_ids) - len(channel_labels[channel_labels == 'good'])
-                print(f"Detected {bad} bad channels...")
+                    print(f"Detected {bad} bad channels...")
 
-                channel_label_csv = pd.DataFrame({
+                    channel_label_csv = pd.DataFrame({
                     "channel_id": group.channel_ids,
                     "channel_label": channel_labels,
                 })
-                channel_label_path = preprocessed_folder / f"{group_name}_channel_labels.csv"
-                channel_label_csv.to_csv(channel_label_path, index=False)
-                print(f"Channel labels saved to: {channel_label_path}\n")
+                    channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
+                    channel_label_csv.to_csv(channel_label_path, index=False)
+                    print(f"Channel labels saved to: {channel_label_path}\n")
 
-                if params_bad['remove_bad_channels']:
-                    if len(bad_channel_ids) > 0:
-                        frac = len(bad_channel_ids) / group.get_num_channels()
-                        if frac > params_bad['bad_channel_limit']:
-                            raise RuntimeError(
-                                f"Too many bad channels detected: "
-                                f"{len(bad_channel_ids)}/{group.get_num_channels()} "
-                                f"({frac:.1%}), exceeding limit of "
-                                f"{params_bad['bad_channel_limit']:.1%}. "
-                                f"Please increase 'bad_channel_limit' to override this message, "
-                                f"or set 'remove_bad_channels' to False."
-                            )
-                        print("Removing bad channels...")
-                        group = group.remove_channels(bad_channel_ids)
-                    else:
-                        print("No bad channels to remove.")
+                    if params_bad['remove_bad_channels']:
+                        if len(bad_channel_ids) > 0:
+                            frac = len(bad_channel_ids) / temp_group.get_num_channels()
+                            if frac > params_bad['bad_channel_limit']:
+                                raise RuntimeError(
+                                    f"Too many bad channels detected: "
+                                    f"{len(bad_channel_ids)}/{temp_group.get_num_channels()} "
+                                    f"({frac:.1%}), exceeding limit of "
+                                    f"{params_bad['bad_channel_limit']:.1%}. "
+                                    f"Please increase 'bad_channel_limit' to override this message, "
+                                    f"or set 'remove_bad_channels' to False."
+                                )
+                            print("Removing bad channels...")
+                            temp_group = temp_group.remove_channels(bad_channel_ids)
+                        else:
+                            print("No bad channels to remove.")
 
-                params_car = params_pre['car']
-                print("Applying common median reference...")
-                group = spre.common_reference(
-                    group,
-                    reference=params_car['car_reference'],
-                    operator=params_car['car_operator'],
-                )
+                    params_car = params_pre['car']
+                    print("Applying common median reference...")
+                    temp_group = spre.common_reference(
+                        temp_group,
+                        reference=params_car['car_reference'],
+                        operator=params_car['car_operator'],
+                    )
+                    
+                    if not params_pre['split_by_shank']:
+                        temporary_groups_list.append(temp_group)
+            
+            if not params_pre['split_by_shank']:
+                print("Regrouping shanks into wholeprobe...")
+                group = si.aggregate_channels(recording_list = list(temporary_groups_list.values()))
 
             print(f"Cleaning time {recording_name}: {preprocessing_time['Cleaning']:.2f} seconds\n")
 
