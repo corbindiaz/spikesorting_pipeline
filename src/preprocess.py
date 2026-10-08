@@ -153,6 +153,10 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
             print(f"Cleaning time {recording_name}: {preprocessing_time['Cleaning']:.2f} seconds\n")
 
+            if params_bad['debug_mode']:
+                print('DEBUG MODE. Preprocessing stopped.')
+                return time_master
+
             # Motion
             params_motion = params_pre["motion"]
             if params_motion['motion_overwrite'] and motion_folder.exists():
