@@ -90,7 +90,9 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     
                 temporary_groups_list = []
                 for i, (temp_group_name, temp_group) in enumerate(temporary_groups.items()):
-                    
+                    if not params_pre['split_by_shank']:
+                        print("-" * 40)
+                        print(f"Processing {temp_group_name}:")
                     params_bad = params_pre['bad_channels']
                     print("Detecting bad channels...")
                     bad_channel_ids, channel_labels = spre.detect_bad_channels(
@@ -105,7 +107,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         num_random_chunks=1000,
                     )
                     bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
-                    print(f"Detected {bad} bad channels...")
+                    print(f"Detected {bad} bad channel(s)...")
 
                     channel_label_csv = pd.DataFrame({
                     "channel_id": temp_group.channel_ids,
@@ -113,7 +115,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                 })
                     channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
                     channel_label_csv.to_csv(channel_label_path, index=False)
-                    print(f"Channel labels saved to: {channel_label_path}\n")
+                    print(f"Channel labels saved to: {channel_label_path}")
 
                     if params_bad['remove_bad_channels']:
                         if len(bad_channel_ids) > 0:
@@ -133,6 +135,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             print("No bad channels to remove.")
 
                     params_car = params_pre['car']
+                    print()
                     print("Applying common median reference...")
                     temp_group = spre.common_reference(
                         temp_group,
@@ -144,8 +147,9 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         temporary_groups_list.append(temp_group)
             
             if not params_pre['split_by_shank']:
+                print("-"*40)
                 print("Regrouping shanks into wholeprobe...")
-                group = si.aggregate_channels(recording_list = list(temporary_groups_list.values()))
+                group = si.aggregate_channels(recording_list = list(temporary_groups_list))
 
             print(f"Cleaning time {recording_name}: {preprocessing_time['Cleaning']:.2f} seconds\n")
 
