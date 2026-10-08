@@ -32,9 +32,10 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     recording = si.read_spikeglx(recording_path_, stream_id="imec0.ap")
     print(recording)
 
-    print(f"Saving Probe Map to {str(plots_pre / "probe_map_raw.png")}...")
+    
     w = si.plot_probe_map(recording, with_channel_ids=False, backend="matplotlib")
     save_widget(w, plots_pre / "probe_map_raw.png")
+    print(f"Probe Map saved to: {plots_pre / 'probe_map_raw.png'}")
     
     # Time Shift
     print("Shifting time to ensure 0sec start...")
