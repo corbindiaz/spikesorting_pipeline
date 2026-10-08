@@ -364,7 +364,9 @@ def _chunks(rec, n, dur_s, seed=0):
     """n random chunks in uV, each (n_channels, n_samples)."""
     m = int(dur_s * rec.get_sampling_frequency())
     starts = np.sort(np.random.default_rng(seed).integers(0, rec.get_num_samples() - m, n))
-    g, o = (rec.get_channel_gains(), rec.get_channel_offsets()) if rec.has_scaled() else (1, 0)
+    g, o = rec.get_channel_gains(), rec.get_channel_offsets()
+    if g is None or o is None:  # no gain info: stay in raw units
+        g, o = 1, 0
     return [(rec.get_traces(start_frame=int(s), end_frame=int(s) + m).astype("float32") * g + o).T
             for s in starts]
 
