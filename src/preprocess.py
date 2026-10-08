@@ -134,7 +134,10 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     
                     if params_bad['generate_diagnostics']:
                         bad_channels_diagnostic(temp_group, channel_labels, plots_pre / "bad_channel_diagnostics", params_bad, name=str(temp_group_name))
-
+                    
+                    save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
+                    print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
+                    
                     if params_bad['remove_bad_channels']:
                         if len(bad_channel_ids) > 0:
                             frac = len(bad_channel_ids) / temp_group.get_num_channels()
