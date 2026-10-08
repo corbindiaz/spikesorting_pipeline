@@ -94,22 +94,26 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     outside_channel_threshold=params_bad['coh_psd_out_threshold'],
                     nyquist_threshold=params_bad['coh_psd_nyquist'],
                 )
-                print(f"Detected {len(bad_channel_ids)} bad channels...")
+                bad = len(group.channel_ids) - len(channel_labels[channel_labels == 'good'])
+                print(f"Detected {bad} bad channels...")
 
-                channel_label_csv = pd.Series(channel_labels, index=np.arange(len(channel_labels)))
+                channel_label_csv = pd.DataFrame({
+                    "channel_id": group.channel_ids,
+                    "channel_label": channel_labels,
+                })
                 channel_label_path = preprocessed_folder / f"{group_name}_channel_labels.csv"
-                channel_label_csv.to_csv(channel_label_path, header=["spikeinterface_label"], index_label="channel_id")
+                channel_label_csv.to_csv(channel_label_path, index=False)
                 print(f"Channel labels saved to: {channel_label_path}\n")
 
                 if params_bad['remove_bad_channels']:
                     if len(bad_channel_ids) > 0:
                         frac = len(bad_channel_ids) / group.get_num_channels()
-                        if frac > params_pre['bad_channel_limit']:
+                        if frac > params_bad['bad_channel_limit']:
                             raise RuntimeError(
                                 f"Too many bad channels detected: "
                                 f"{len(bad_channel_ids)}/{group.get_num_channels()} "
                                 f"({frac:.1%}), exceeding limit of "
-                                f"{params_pre['bad_channel_limit']:.1%}. "
+                                f"{params_bad['bad_channel_limit']:.1%}. "
                                 f"Please increase 'bad_channel_limit' to override this message, "
                                 f"or set 'remove_bad_channels' to False."
                             )

@@ -1,6 +1,6 @@
 numpy==2.4.6
 pandas==3.0.5
-probeinterface==0.3.2
+probeinterface==0.4.0
 scikit-learn==1.9.1
 matplotlib==3.11.2
 ipython==8.12.3
