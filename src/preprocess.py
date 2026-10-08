@@ -79,14 +79,6 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                 print("Phase-shift correcting...")
                 group = spre.phase_shift(group)
 
-                params_band = params_pre['bandpass_filter']
-                print("Bandpass filtering...")
-                group = spre.bandpass_filter(
-                    group,
-                    freq_min=params_band['freq_min'],
-                    freq_max=params_band['freq_max'],
-                )
-
                 if not params_pre['split_by_shank']:
                     print("NOTE: Temporarily splitting by shank to perform certain preprocessing steps.")
                     temporary_groups = recording.split_by("group")
@@ -109,7 +101,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         noisy_channel_threshold=params_bad['coh_psd_noise_threshold'],
                         outside_channel_threshold=params_bad['coh_psd_out_threshold'],
                         nyquist_threshold=params_bad['coh_psd_nyquist'],
-                        num_random_chunks=1000,
+                        num_random_chunks=100,
                     )
                     bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
                     print(f"Detected {bad} bad channel(s)...")
@@ -138,6 +130,14 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             temp_group = temp_group.remove_channels(bad_channel_ids)
                         else:
                             print("No bad channels to remove.")
+                            
+                    params_band = params_pre['bandpass_filter']
+                    print("Bandpass filtering...")
+                    group = spre.bandpass_filter(
+                        group,
+                        freq_min=params_band['freq_min'],
+                        freq_max=params_band['freq_max'],
+                    )
 
                     params_car = params_pre['car']
                     print()
