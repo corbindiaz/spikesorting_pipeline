@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from utils import timed, recording_summary
-from visualization import plot_peak_localization, save_widget
+from visualization import plot_peak_localization, save_widget, save_probe_figure
 
 import spikeinterface.full as si
 import spikeinterface.preprocessing as spre
@@ -33,8 +33,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     print(recording)
 
     
-    w = si.plot_probe_map(recording, with_channel_ids=False, backend="matplotlib")
-    save_widget(w, plots_pre / "probe_map_raw.png")
+    save_probe_figure(recording, plots_pre, 'probe_map_raw.png')
     print(f"Probe Map saved to: {plots_pre / 'probe_map_raw.png'}")
     
     # Time Shift
@@ -145,12 +144,8 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             temp_group = temp_group.remove_channels(bad_channel_ids)
                         else:
                             print("No bad channels to remove.")
-                            
-                    color_map = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "purple"}
-                    colors = [color_map.get(l, "gray") for l in channel_labels]
 
-                    w = si.plot_probe_map(temp_group, color_channels=colors, backend="matplotlib")
-                    save_widget(w, plots_pre / f"{temp_group_name}_bad_channels_map.png")
+                    save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
                     print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
                             
                     params_band = params_pre['bandpass_filter']

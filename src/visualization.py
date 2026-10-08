@@ -9,6 +9,7 @@ import numpy as np
 
 from sklearn.decomposition import PCA
 
+import spikeinterface.core as si
 from probeinterface.plotting import plot_probe
 
 import bombcell as bc
@@ -25,28 +26,119 @@ def save_widget(w, path, dpi=150):
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
 
-def save_probe_figure(rec, out_dir, basename="probe_layout"):
-    probe = rec.get_probe()
-
+DEFAULT_LABEL_COLORS = {
+    "good": "tab:green",
+    "dead": "red",
+    "noise": "orange",
+    "out": "purple",
+}
+ 
+ 
+def save_probe_figure(
+    rec,
+    out_dir,
+    basename="probe_layout",
+    color_channels=None, 
+    channel_labels=None, 
+    label_colors=None, 
+    with_channel_ids=False, 
+    legend=True, 
+    crop=True,
+    top_pad_um=100,
+    bottom_pad_um=50,
+    x_pad_um=50,
+    width_in=3.0,
+    min_height_in=4,
+    max_height_in=20,
+    dpi=300,
+    title=None,
+    **plot_kwargs,
+):
+    """
+    Save a probe layout figure, optionally colored/labelled per channel and
+    cropped to just above the highest channel.
+ 
+    Behavior
+    --------
+    - If `color_channels`, `channel_labels`, or `with_channel_ids` is given,
+      the figure is drawn with `si.plot_probe_map` (recording-aware).
+    - Otherwise it is drawn with `probeinterface.plotting.plot_probe`
+      (plain static layout).
+ 
+    Cropping uses `rec.get_channel_locations()`, so if bad channels were removed
+    from `rec`, the crop follows the channels that remain.
+ 
+    Returns the path of the saved PNG.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    out = plot_probe(probe)
-
-    # Handle different return types across SpikeInterface versions
-    if isinstance(out, tuple):
-        if hasattr(out[0], "savefig"):   # (fig, ax)
-            fig = out[0]
-        else:                            # (ax1, ax2, ...)
-            fig = out[0].figure
+    out_path = out_dir / f"{basename}.png"
+ 
+    # Resolve colors from labels if needed
+    legend_handles = None
+    if channel_labels is not None:
+        if color_channels is not None:
+            raise ValueError("Pass either color_channels or channel_labels, not both.")
+        cmap = {**DEFAULT_LABEL_COLORS, **(label_colors or {})}
+        channel_labels = np.asarray(channel_labels)
+        if len(channel_labels) != rec.get_num_channels():
+            raise ValueError(
+                f"channel_labels has {len(channel_labels)} entries but recording has "
+                f"{rec.get_num_channels()} channels."
+            )
+        color_channels = [cmap.get(str(l), "gray") for l in channel_labels]
+        if legend:
+            present = [l for l in dict.fromkeys(map(str, channel_labels))]
+            legend_handles = [
+                Patch(facecolor=cmap.get(l, "gray"), edgecolor="k",
+                      label=f"{l} ({int(np.sum(channel_labels == l))})")
+                for l in present
+            ]
+ 
+    if color_channels is not None and len(color_channels) != rec.get_num_channels():
+        raise ValueError("color_channels must have one color per channel in `rec`.")
+ 
+    use_widget = (color_channels is not None) or with_channel_ids
+ 
+    # Crop limits and figure size
+    locs = rec.get_channel_locations()
+    if crop:
+        x_min, x_max = locs[:, 0].min() - x_pad_um, locs[:, 0].max() + x_pad_um
+        y_min, y_max = locs[:, 1].min() - bottom_pad_um, locs[:, 1].max() + top_pad_um
+        aspect = (y_max - y_min) / max(x_max - x_min, 1e-9)
+        height_in = float(np.clip(width_in * aspect, min_height_in, max_height_in))
     else:
-        fig = out.figure
-
+        height_in = max_height_in / 2
+ 
+    fig, ax = plt.subplots(figsize=(width_in, height_in))
+ 
+    if use_widget:
+        si.plot_probe_map(
+            rec,
+            color_channels=color_channels,
+            with_channel_ids=with_channel_ids,
+            backend="matplotlib",
+            ax=ax,
+            **plot_kwargs,
+        )
+    else:
+        plot_probe(rec.get_probe(), ax=ax, **plot_kwargs)
+ 
+    if crop:
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+ 
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="upper left",
+                  bbox_to_anchor=(1.02, 1.0), frameon=False, fontsize=8)
+    if title:
+        ax.set_title(title)
+ 
     fig.tight_layout()
-
-    fig.savefig(out_dir / f"{basename}.png", dpi=300)
-    #fig.savefig(out_dir / f"{basename}.svg")
+    fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
+    return out_path
+
 
 def save_text_summary_image(analyzer, out_dir: Path, basename: str = "summary"):
     """Save a quick, robust summary as an image (works even if no extensions exist)."""
