@@ -23,8 +23,13 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     plots.mkdir(parents=True, exist_ok=True)
     motion_plots_folder.mkdir(parents=True, exist_ok=True)
 
+    if params_pre['bad_channels']['debug_mode']:
+        print("WARNING:")
+        print("DEBUG MODE initiated. Pipeline will terminate before motion detection.")
+
     recording = si.read_spikeglx(recording_path_, stream_id="imec0.ap")
     print(recording)
+
     
     # Time Shift
     print("Shifting time to ensure 0sec start...")
