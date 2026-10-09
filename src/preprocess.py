@@ -107,26 +107,32 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         print("-" * 40)
                         print(f"Processing {temp_group_name}:")
                     params_bad = params_pre['bad_channels']
-                    print("Detecting bad channels...")
+                    remove_cfg = params_bad.get('remove_bad_channels', True)
+                    if isinstance(remove_cfg, (list, tuple, np.ndarray)) & (not params_bad.get('generate_diagnostics', True)):
+                        print(f"Skipping bad channel detection. Removing channels {remove_cfg} instead.")
+                    else:
+                        if isinstance(remove_cfg, (list, tuple, np.ndarray)) & (params_bad.get('generate_diagnostics', True)):
+                            print("Performing bad channel detection to generate diagnostics...")
+                        else:
+                            print("Detecting bad channels...")
 
-                    # Detect IBL bad channels & SpikeInterface MAD noise
-                    bad_channel_ids, channel_labels, feats, si_mad_bad_ids = detect_bad_channels_ibl(temp_group, params_bad)
-                    bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
-                    print(f"Detected {bad} bad channel(s) via IBL...")
+                        # Detect IBL bad channels & SpikeInterface MAD noise
+                        bad_channel_ids, channel_labels, feats, si_mad_bad_ids = detect_bad_channels_ibl(temp_group, params_bad)
+                        bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
+                        print(f"Detected {bad} bad channel(s) via IBL...")
 
-                    # Save channel labels to CSV
-                    si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
-                    channel_label_csv = pd.DataFrame({
-                        "channel_id": temp_group.channel_ids,
-                        "channel_label": channel_labels,
-                        "si_mad_noise": np.where(si_mad_mask, "noise", "good")
-                    })
-                    channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
-                    channel_label_csv.to_csv(channel_label_path, index=False)
-                    print(f"Channel labels saved to: {channel_label_path}")
+                        # Save channel labels to CSV
+                        si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
+                        channel_label_csv = pd.DataFrame({
+                            "channel_id": temp_group.channel_ids,
+                            "channel_label": channel_labels,
+                            "si_mad_noise": np.where(si_mad_mask, "noise", "good")
+                        })
+                        channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
+                        channel_label_csv.to_csv(channel_label_path, index=False)
+                        print(f"Channel labels saved to: {channel_label_path}")
                     
                     # Target channels to remove / highlight
-                    remove_cfg = params_bad.get('remove_bad_channels', True)
                     custom_channels = None
                     
                     if isinstance(remove_cfg, (list, tuple, np.ndarray)):
