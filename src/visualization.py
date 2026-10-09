@@ -33,8 +33,6 @@ DEFAULT_LABEL_COLORS = {
     "out": "blue",
     "bad": "purple"  # Fallback for custom channels when detection is skipped
 }
- 
-
 
 def save_probe_figure(
     rec,
