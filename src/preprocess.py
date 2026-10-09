@@ -445,13 +445,12 @@ def _plot_traces(chunk, fs, labels, order, path, n, ctx=2, ms=30):
     fig.savefig(path, dpi=130)
     plt.close(fig)
 
-
 def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
                             n_chunks=30, chunk_s=0.3, seeds=(1, 2, 3, 4), n_examples=3,
                             custom_star_channels=None):
     """
     Generates diagnostics, incorporating SpikeInterface MAD plots.
-    Stars retain their label status colors, with a dedicated shape legend added for distinction.
+    Annotates channels exceeding thresholds and custom-selected channels with their numeric ID.
     """
     out = Path(out_dir) / name
     out.mkdir(parents=True, exist_ok=True)
@@ -494,36 +493,75 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
     gs = fig.add_gridspec(2, 6)
     amp_limit = lambda x: np.median(x) + k_mad * 1.4826 * np.median(np.abs(x - np.median(x)))
     
-    panels = [("xcor_hf", list(p["similarity_threshold"])),
-              ("xcor_lf", [p["outside_threshold"]]),
-              ("psd_hf", [p["psd_hf_threshold"]]),
-              ("std_hf", [amp_limit(feats["std_hf"])]),
-              ("std_raw", [amp_limit(feats["std_raw"])]),
-              ("si_mad", [amp_limit(feats["si_mad"])])]
-              
-    star_mask = np.isin(rec.channel_ids, custom_star_channels) if custom_star_channels is not None else np.zeros(len(rec.channel_ids), dtype=bool)
+    # Feature key to dictionary lookup mapping
+    feat_map = {
+        "High-Freq Coherence": "xcor_hf",
+        "Low-Freq Coherence": "xcor_lf",
+        "High-Freq PSD": "psd_hf",
+        "High-Passed STD.": "std_hf",
+        "High-Passed MAD": "si_mad",
+        "Raw STD": "std_raw"
+    }
 
-    for j, (key, lines) in enumerate(panels):
+    panels = [("High-Freq Coherence", list(p["similarity_threshold"])),
+              ("Low-Freq Coherence", [p["outside_threshold"]]),
+              ("High-Freq PSD", [p["psd_hf_threshold"]]),
+              ("High-Passed STD.", [amp_limit(feats["std_hf"])]),
+              ("High-Passed MAD", [amp_limit(feats["si_mad"])]),
+              ("Raw STD", [amp_limit(feats["std_raw"])])]
+              
+    channel_ids = rec.channel_ids
+    star_mask = np.isin(channel_ids, custom_star_channels) if custom_star_channels is not None else np.zeros(len(channel_ids), dtype=bool)
+
+    # Clean channel IDs to display numeric values (e.g. 'imec0.ap#AP246' -> '246')
+    clean_num_ids = []
+    for cid in channel_ids:
+        match = re.search(r'\d+', str(cid)[::-1])
+        clean_num_ids.append(match.group(0)[::-1] if match else str(cid))
+    clean_num_ids = np.asarray(clean_num_ids)
+
+    for j, (title, lines) in enumerate(panels):
+        key = feat_map[title]
         ax = fig.add_subplot(gs[0, j])
+        val_arr = feats[key]
         
-        # Plot standard channels (circles) vs custom channels (stars keeping original color)
+        # Determine channels beyond threshold for this panel
+        if key == "xcor_hf":
+            beyond_mask = (val_arr < lines[0]) | (val_arr > lines[1])
+        elif key == "xcor_lf":
+            beyond_mask = val_arr < lines[0]
+        else:
+            beyond_mask = val_arr > lines[0]
+            
+        # Combine channels to annotate (beyond threshold OR custom star)
+        annotate_mask = beyond_mask | star_mask
+
+        # Plot standard channels (circles) vs custom channels (stars)
         for lab, c in COLORS.items():
             m = (labels == lab) & (~star_mask)
-            ax.scatter(feats[key][m], depth[m], s=12, c=c, marker="o", label=f"{lab} ({m.sum()})")
+            ax.scatter(val_arr[m], depth[m], s=12, c=c, marker="o", label=f"{lab} ({m.sum()})")
             
             m_star = (labels == lab) & star_mask
             if m_star.any():
-                ax.scatter(feats[key][m_star], depth[m_star], s=120, c=c, marker="*", 
+                ax.scatter(val_arr[m_star], depth[m_star], s=120, c=c, marker="*", 
                            edgecolors="black", linewidths=0.6, zorder=5)
+
+        # Text Annotations for flagged/custom channels
+        x_span = np.ptp(val_arr) if np.ptp(val_arr) > 0 else 1.0
+        x_offset = x_span * 0.015
+        
+        for idx in np.where(annotate_mask)[0]:
+            ax.text(val_arr[idx] + x_offset, depth[idx], clean_num_ids[idx],
+                    fontsize=6, va='center', ha='left', alpha=0.85,
+                    fontweight='bold' if star_mask[idx] else 'normal')
 
         for v in lines:
             ax.axvline(v, ls="--", c="k", lw=0.8)
-        ax.set_title(key)
+        ax.set_title(title)
         if j == 0:
             ax.set_ylabel("depth (um)")
             ax.legend(fontsize=8, loc="upper left")
         
-        # Legend showing shape difference on top right of second panel
         if j == 1 and star_mask.any():
             shape_legend = [
                 Line2D([0], [0], marker='o', color='w', label='Detected', markerfacecolor='gray', markersize=6),
