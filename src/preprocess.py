@@ -16,6 +16,7 @@ from ibldsp.voltage import detect_bad_channels as ibl
 from scipy.signal import welch, butter, sosfiltfilt
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 def preprocess(recording_path_, output_folder, params, time_master, step=0):
     params_pre = params['preprocess']
@@ -68,7 +69,6 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         group_name = str(group_name)
         recording_name = f"{group_name}_group{i}"
 
-        # Register timing entries first so partial results survive a crash
         group_time = time_master.setdefault(f"Group{i}", {})
         preprocessing_time = group_time.setdefault("Preprocessing", {})
         group_start = time.perf_counter()
@@ -108,12 +108,12 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     params_bad = params_pre['bad_channels']
                     print("Detecting bad channels...")
 
-                    # (1) & (2) Detect IBL bad channels & SpikeInterface MAD noise
+                    # Detect IBL bad channels & SpikeInterface MAD noise
                     bad_channel_ids, channel_labels, feats, si_mad_bad_ids = detect_bad_channels_ibl(temp_group, params_bad)
                     bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
                     print(f"Detected {bad} bad channel(s) via IBL...")
 
-                    # Create label DF with combined columns
+                    # Save channel labels to CSV
                     si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
                     channel_label_csv = pd.DataFrame({
                         "channel_id": temp_group.channel_ids,
@@ -134,7 +134,6 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     else:
                         channels_to_remove = bad_channel_ids
 
-                    # (3) & (4) Diagnostic figure with custom stars if custom list passed
                     if params_bad.get('generate_diagnostics', True):
                         bad_channels_diagnostic(
                             temp_group, channel_labels, feats, 
@@ -146,7 +145,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
                     print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
                     
-                    # (4) Channel Removal Logic
+                    # Channel Removal Logic
                     if remove_cfg:
                         if len(channels_to_remove) > 0:
                             frac = len(channels_to_remove) / temp_group.get_num_channels()
@@ -369,7 +368,7 @@ def _features(chunks, fs, order, p):
         raw_mean.append(c.mean(axis=1))
         raw_var.append(c.var(axis=1))
         
-        # Calculate Median Absolute Deviation (MAD) for each channel
+        # Calculate Median Absolute Deviation (MAD) for each channel on high-pass filtered data
         med = np.median(filtered, axis=1, keepdims=True)
         si_mads.append(np.median(np.abs(filtered - med), axis=1) * 1.4826)
 
@@ -388,7 +387,10 @@ def _outliers(x, k):
 
 
 def _label(feats, order, p):
-    """IBL decision rules applied to features."""
+    """
+    IBL decision rules applied to features.
+    MAD noise detection is restricted strictly to non-raw (highpass filtered) data thresholds.
+    """
     dead_t, noise_t = p["similarity_threshold"]
     hf, psd = feats["xcor_hf"], feats["psd_hf"]
     lf_sorted = feats["xcor_lf"][order]
@@ -396,9 +398,11 @@ def _label(feats, order, p):
     labels = np.full(len(hf), "good", dtype="U5")
     labels[hf < dead_t] = "dead"
     k_mad = p["std_mad_threshold"]
-    noisy = (hf > noise_t) | (psd > p["psd_hf_threshold"]) \
-        | _outliers(feats["std_hf"], k_mad) | _outliers(feats["std_raw"], k_mad)
+    
+    # Noise restricted only to high-passed / non-raw thresholds
+    noisy = (hf > noise_t) | (psd > p["psd_hf_threshold"]) | _outliers(feats["std_hf"], k_mad)
     labels[noisy] = "noise"
+    
     k = len(lf_sorted)
     while k > 0 and lf_sorted[k - 1] < p["outside_threshold"]:
         k -= 1
@@ -413,7 +417,6 @@ def detect_bad_channels_ibl(rec, p, n_chunks=100, chunk_s=0.3, seed=0):
     feats = _features(_chunks(rec, n_chunks, chunk_s, seed), rec.get_sampling_frequency(), order, p)
     labels = _label(feats, order, p)
     
-    # Run SpikeInterface's bad channel detection using MAD
     try:
         si_bad_ids, _ = spre.detect_bad_channels(rec, method="mad")
     except Exception:
@@ -447,8 +450,8 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
                             n_chunks=30, chunk_s=0.3, seeds=(1, 2, 3, 4), n_examples=3,
                             custom_star_channels=None):
     """
-    Generates diagnostics, incorporating SpikeInterface MAD plots and 
-    star-marking custom passed channel IDs.
+    Generates diagnostics, incorporating SpikeInterface MAD plots.
+    Stars retain their label status colors, with a dedicated shape legend added for distinction.
     """
     out = Path(out_dir) / name
     out.mkdir(parents=True, exist_ok=True)
@@ -491,7 +494,6 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
     gs = fig.add_gridspec(2, 6)
     amp_limit = lambda x: np.median(x) + k_mad * 1.4826 * np.median(np.abs(x - np.median(x)))
     
-    # Added SI MAD feature to panels
     panels = [("xcor_hf", list(p["similarity_threshold"])),
               ("xcor_lf", [p["outside_threshold"]]),
               ("psd_hf", [p["psd_hf_threshold"]]),
@@ -503,21 +505,31 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
 
     for j, (key, lines) in enumerate(panels):
         ax = fig.add_subplot(gs[0, j])
-        for lab, c in COLORS.items():
-            m = labels == lab
-            ax.scatter(feats[key][m], depth[m], s=8, c=c, label=f"{lab} ({m.sum()})")
         
-        # Plot custom-selected channels as red stars if provided
-        if star_mask.any():
-            ax.scatter(feats[key][star_mask], depth[star_mask], s=120, c="red", marker="*", 
-                       edgecolors="black", zorder=5, label=f"custom ({star_mask.sum()})")
+        # Plot standard channels (circles) vs custom channels (stars keeping original color)
+        for lab, c in COLORS.items():
+            m = (labels == lab) & (~star_mask)
+            ax.scatter(feats[key][m], depth[m], s=12, c=c, marker="o", label=f"{lab} ({m.sum()})")
+            
+            m_star = (labels == lab) & star_mask
+            if m_star.any():
+                ax.scatter(feats[key][m_star], depth[m_star], s=120, c=c, marker="*", 
+                           edgecolors="black", linewidths=0.6, zorder=5)
 
         for v in lines:
             ax.axvline(v, ls="--", c="k", lw=0.8)
         ax.set_title(key)
         if j == 0:
             ax.set_ylabel("depth (um)")
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=8, loc="upper left")
+        
+        # Legend showing shape difference on top right of second panel
+        if j == 1 and star_mask.any():
+            shape_legend = [
+                Line2D([0], [0], marker='o', color='w', label='Detected', markerfacecolor='gray', markersize=6),
+                Line2D([0], [0], marker='*', color='w', label='Custom List', markerfacecolor='gray', markeredgecolor='black', markersize=10)
+            ]
+            ax.legend(handles=shape_legend, title="Marker Shape", fontsize=8, loc="upper right")
 
     chunks = list(_chunks(rec, n_chunks, chunk_s))
     f, _ = welch(chunks[0], fs=fs, nperseg=1024, axis=1)
@@ -536,9 +548,10 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
     ax.legend(fontsize=8)
 
     ax = fig.add_subplot(gs[1, 3:])
-    sc = ax.scatter(frac, depth, c=frac, s=8, vmin=0, vmax=1)
+    sc = ax.scatter(frac[~star_mask], depth[~star_mask], c=frac[~star_mask], s=8, vmin=0, vmax=1)
     if star_mask.any():
-        ax.scatter(frac[star_mask], depth[star_mask], s=120, c="red", marker="*", edgecolors="black", zorder=5)
+        ax.scatter(frac[star_mask], depth[star_mask], c=frac[star_mask], s=120, marker="*", 
+                   edgecolors="black", linewidths=0.8, vmin=0, vmax=1, zorder=5)
     ax.set(xlabel="fraction of runs flagged", ylabel="depth (um)", title="Label stability")
     fig.colorbar(sc, ax=ax)
     fig.tight_layout()
