@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 plt.ioff()
 from matplotlib import cm
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle, Circle
 
 def save_widget(w, path, dpi=150):
     fig = w.figure
@@ -34,6 +34,8 @@ DEFAULT_LABEL_COLORS = {
     "bad": "purple"  # Fallback for custom channels when detection is skipped
 }
  
+
+
 def save_probe_figure(
     rec,
     out_dir,
@@ -121,9 +123,8 @@ def save_probe_figure(
     if custom_channels is not None and len(custom_channels) > 0:
         custom_set = set(custom_channels)
         channel_ids = rec.channel_ids
-        contact_shapes = probe.contact_shapes
-        contact_shape_params = probe.contact_shape_params
-        plane_axes = probe.get_planear_axes()
+        contact_shapes = getattr(probe, "contact_shapes", None)
+        contact_shape_params = getattr(probe, "contact_shape_params", None)
 
         for idx, ch_id in enumerate(channel_ids):
             if ch_id in custom_set:
@@ -142,7 +143,7 @@ def save_probe_figure(
                     ax.add_patch(rect)
                 elif shape == "circle":
                     r = params.get("radius", 6)
-                    circle = plt.Circle(
+                    circle = Circle(
                         (x, y), r,
                         fill=False, edgecolor="black", linewidth=2.0, zorder=10
                     )
