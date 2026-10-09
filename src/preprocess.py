@@ -13,7 +13,7 @@ import spikeinterface.full as si
 import spikeinterface.preprocessing as spre
 from spikeinterface.sortingcomponents.motion import interpolate_motion
 from ibldsp.voltage import detect_bad_channels as ibl
-from scipy.signal import welch
+from scipy.signal import welch, butter, sosfiltfilt
 
 import matplotlib.pyplot as plt
 
@@ -36,7 +36,6 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     recording = si.read_spikeglx(recording_path_, stream_id="imec0.ap")
     print(recording)
 
-    
     save_probe_figure(recording, plots_pre, 'probe_map_raw')
     print(f"Probe Map saved to: {plots_pre / 'probe_map_raw.png'}")
     
@@ -58,13 +57,12 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         else:
             end = params_trim['end']
         print(f"Trimming recording to be from {start} sec to {end} sec...")
-        recording = recording.time_slice(start_time=start, 
-                                         end_time=end)
+        recording = recording.time_slice(start_time=start, end_time=end)
     
     if params_pre['split_by_shank']:
         groups = recording.split_by("group")
     else:
-        groups = {'wholeprobe':recording}
+        groups = {'wholeprobe': recording}
 
     for i, (group_name, group) in enumerate(groups.items()):
         group_name = str(group_name)
@@ -81,15 +79,14 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         print("-" * 80)
         print(f"Preprocessing shank {group_name}")
         print(f"Channels: {group.get_num_channels()}")
-        
 
         try:
             # Cleaning (Phase-shift, Filtering, Bad Channel Detection, CAR)
             with timed(preprocessing_time, "Cleaning"):
                 
                 w = si.plot_traces(group, time_range=(10, 10.5), mode="map",
-                                     order_channel_by_depth=True, return_in_uV=True,
-                                     backend="matplotlib")
+                                   order_channel_by_depth=True, return_in_uV=True,
+                                   backend="matplotlib")
                 
                 save_widget(w, plots_pre / f"{recording_name}_traces_raw.png")
                 print(f"Raw traces saved to: {plots_pre / f'{recording_name}_traces_raw.png'}")
@@ -99,9 +96,9 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
                 if not params_pre['split_by_shank']:
                     print("NOTE: Temporarily splitting by shank to perform certain preprocessing steps.")
-                    temporary_groups = group.split_by("group")
+                    temporary_groups = recording.split_by("group")
                 else:
-                    temporary_groups = {group_name:group}
+                    temporary_groups = {group_name: group}
                     
                 temporary_groups_list = []
                 for i, (temp_group_name, temp_group) in enumerate(temporary_groups.items()):
@@ -110,41 +107,62 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         print(f"Processing {temp_group_name}:")
                     params_bad = params_pre['bad_channels']
                     print("Detecting bad channels...")
-                    bad_channel_ids, channel_labels, feats = detect_bad_channels_ibl(temp_group, params_bad)
-                    bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
-                    print(f"Detected {bad} bad channel(s)...")
 
+                    # (1) & (2) Detect IBL bad channels & SpikeInterface MAD noise
+                    bad_channel_ids, channel_labels, feats, si_mad_bad_ids = detect_bad_channels_ibl(temp_group, params_bad)
+                    bad = len(temp_group.channel_ids) - len(channel_labels[channel_labels == 'good'])
+                    print(f"Detected {bad} bad channel(s) via IBL...")
+
+                    # Create label DF with combined columns
+                    si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
                     channel_label_csv = pd.DataFrame({
-                    "channel_id": temp_group.channel_ids,
-                    "channel_label": channel_labels,
-                })
+                        "channel_id": temp_group.channel_ids,
+                        "channel_label": channel_labels,
+                        "si_mad_noise": np.where(si_mad_mask, "noise", "good")
+                    })
                     channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
                     channel_label_csv.to_csv(channel_label_path, index=False)
                     print(f"Channel labels saved to: {channel_label_path}")
                     
-                    if params_bad['generate_diagnostics']:
-                        bad_channels_diagnostic(temp_group, channel_labels, feats, plots_pre / "bad_channel_diagnostics",
-                        params_bad, name=str(temp_group_name))
+                    # Target channels to remove / highlight
+                    remove_cfg = params_bad.get('remove_bad_channels', True)
+                    custom_channels = None
+                    
+                    if isinstance(remove_cfg, (list, tuple, np.ndarray)):
+                        channels_to_remove = [c for c in remove_cfg if c in temp_group.channel_ids]
+                        custom_channels = channels_to_remove
+                    else:
+                        channels_to_remove = bad_channel_ids
+
+                    # (3) & (4) Diagnostic figure with custom stars if custom list passed
+                    if params_bad.get('generate_diagnostics', True):
+                        bad_channels_diagnostic(
+                            temp_group, channel_labels, feats, 
+                            plots_pre / "bad_channel_diagnostics", 
+                            params_bad, name=str(temp_group_name),
+                            custom_star_channels=custom_channels
+                        )
                     
                     save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
                     print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
                     
-                    if params_bad['remove_bad_channels']:
-                        if len(bad_channel_ids) > 0:
-                            frac = len(bad_channel_ids) / temp_group.get_num_channels()
+                    # (4) Channel Removal Logic
+                    if remove_cfg:
+                        if len(channels_to_remove) > 0:
+                            frac = len(channels_to_remove) / temp_group.get_num_channels()
                             if frac > params_bad['bad_channel_limit']:
                                 raise RuntimeError(
-                                    f"Too many bad channels detected: "
-                                    f"{len(bad_channel_ids)}/{temp_group.get_num_channels()} "
+                                    f"Too many bad channels targeted for removal: "
+                                    f"{len(channels_to_remove)}/{temp_group.get_num_channels()} "
                                     f"({frac:.1%}), exceeding limit of "
                                     f"{params_bad['bad_channel_limit']:.1%}. "
                                     f"Please increase 'bad_channel_limit' to override this message, "
                                     f"or set 'remove_bad_channels' to False."
                                 )
-                            print("Removing bad channels...")
-                            temp_group = temp_group.remove_channels(bad_channel_ids)
+                            print(f"Removing {len(channels_to_remove)} targeted channels...")
+                            temp_group = temp_group.remove_channels(channels_to_remove)
                         else:
-                            print("No bad channels to remove.")
+                            print("No channels to remove.")
      
                     params_band = params_pre['bandpass_filter']
                     print("Bandpass filtering...")
@@ -168,11 +186,11 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
             if not params_pre['split_by_shank']:
                 print("-"*40)
                 print("Regrouping shanks into wholeprobe...")
-                group = si.aggregate_channels(recording_list = list(temporary_groups_list))
+                group = si.aggregate_channels(recording_list=list(temporary_groups_list))
                 
             w = si.plot_traces(group, time_range=(10, 10.5), mode="map",
-                                     order_channel_by_depth=True, return_in_uV=True,
-                                     backend="matplotlib")
+                               order_channel_by_depth=True, return_in_uV=True,
+                               backend="matplotlib")
             
             save_widget(w, plots_pre / f"{recording_name}_traces_cleaned.png")
             print(f"Cleaned traces plot saved to: {plots_pre / f'{recording_name}_traces_cleaned.png'}")
@@ -247,8 +265,8 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         preset="dredge_fast",
                         folder=motion_folder,
                         raise_error=False,
-                        output_motion_info = True,
-                        estimate_motion_kwargs= estimate_motion_kwargs,
+                        output_motion_info=True,
+                        estimate_motion_kwargs=estimate_motion_kwargs,
                         **params['job_kwargs'],
                     )
 
@@ -272,7 +290,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             peak_plot_path = motion_plots_folder / f"{recording_name}_peak_activity_all.png"
                             locations = group.get_channel_locations()
                             depth_min = np.min(locations[:, 1])
-                            depth_max = np.max(locations[:, 1])*1.1
+                            depth_max = np.max(locations[:, 1]) * 1.1
                             fig = plt.figure(figsize=(14, 8))
                             si.plot_motion_info(
                                 motion_info, group,
@@ -291,9 +309,8 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             
                             peaks = motion_info["peaks"]
 
-                            # whole-recording map: where is the activity?
                             w = si.plot_peak_activity(group_pre_motion, peaks, bin_duration_s=None,
-                                                    with_interpolated_map=True, backend="matplotlib")
+                                                     with_interpolated_map=True, backend="matplotlib")
                             save_widget(w, peak_plot_path)
                             print(f"Peak Activity plot saved to:  {peak_plot_path}")
 
@@ -312,88 +329,99 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         finally:
             total = time.perf_counter() - group_start
             accounted = sum(v for k, v in preprocessing_time.items() if k != "Other")
-            #preprocessing_time["Other"] = max(0.0, total - accounted)
 
     return time_master
 
-"""Bad-channel debugging for the IBL coherence+psd detector.
-
-Call debug_bad_channels(...) right after spre.detect_bad_channels (before removal).
-Writes to <out_dir>/<name>/:
-  overview.png         IBL features vs depth (with thresholds), PSDs, label stability
-  traces.png           flagged channels next to their depth neighbours
-  channel_report.csv   per-channel label, IBL features, fraction of seeded runs flagged bad
-  threshold_sweep.csv  label counts when each threshold is nudged
-"""
-
 
 COLORS = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "purple"}
-# sweep name -> params_bad key
-THRESH = {
-    "dead": "coh_psd_dead_threshold",
-    "noise": "coh_psd_noise_threshold",
-    "out": "coh_psd_out_threshold",
-}
- 
- 
+
+
 def _chunks(rec, n, dur_s, seed=0):
     """Yield n random chunks in uV, each (n_channels, n_samples). A generator, so memory stays flat."""
     m = int(dur_s * rec.get_sampling_frequency())
     starts = np.sort(np.random.default_rng(seed).integers(0, rec.get_num_samples() - m, n))
     g, o = rec.get_channel_gains(), rec.get_channel_offsets()
-    if g is None or o is None:  # no gain info: stay in raw units
+    if g is None or o is None:
         g, o = 1, 0
     for s in starts:
         yield (rec.get_traces(start_frame=int(s), end_frame=int(s) + m).astype("float32") * g + o).T
- 
- 
+
+
 def _features(chunks, fs, order, p):
-    """Median IBL features across chunks, in recording channel order."""
-    out = {k: [] for k in ("xcor_hf", "xcor_lf", "psd_hf")}
+    """
+    Median features across chunks, in recording channel order.
+    Calculates standard IBL features alongside SpikeInterface MAD metrics.
+    """
+    sos = butter(3, 300, btype="highpass", fs=fs, output="sos")
+    ibl_f = {k: [] for k in ("xcor_hf", "xcor_lf", "psd_hf")}
+    std_hf, raw_mean, raw_var = [], [], []
+    si_mads = []
+    
     for c in chunks:
-        _, f = ibl(c[order] / 1e6, fs,  # IBL expects volts, depth-sorted
-                   similarity_threshold=(p["coh_psd_dead_threshold"], p["coh_psd_noise_threshold"]),
-                   psd_hf_threshold=p["coh_psd_hf_threshold"])
-        for k in out:
-            out[k].append(f[k])
-    return {k: np.median(v, 0)[np.argsort(order)] for k, v in out.items()}
- 
- 
-def _label(feats, order, p, **thr):
-    """
-    IBL decision rules applied to the features. `thr` overrides dead / noise / out thresholds.
-      dead  : HF coherence below the dead threshold
-      noise : HF coherence above the noise threshold, OR HF power above psd_hf_threshold
-      out   : the contiguous run of channels from the TOP of the probe whose LF coherence
-              is below the outside threshold
-    Precedence if several apply: out > noise > dead.
-    """
-    dead = thr.get("dead", p["coh_psd_dead_threshold"])
-    noise = thr.get("noise", p["coh_psd_noise_threshold"])
-    out = thr.get("out", p["coh_psd_out_threshold"])
-    psd_t = 0.02 if p["coh_psd_hf_threshold"] is None else p["coh_psd_hf_threshold"]
+        _, f = ibl(c[order] / 1e6, fs,
+                   similarity_threshold=tuple(p["similarity_threshold"]),
+                   psd_hf_threshold=p["psd_hf_threshold"])
+        for k in ibl_f:
+            ibl_f[k].append(f[k])
+        
+        filtered = sosfiltfilt(sos, c, axis=1)
+        std_hf.append(filtered.std(axis=1))
+        raw_mean.append(c.mean(axis=1))
+        raw_var.append(c.var(axis=1))
+        
+        # Calculate Median Absolute Deviation (MAD) for each channel
+        med = np.median(filtered, axis=1, keepdims=True)
+        si_mads.append(np.median(np.abs(filtered - med), axis=1) * 1.4826)
+
+    feats = {k: np.median(v, 0)[np.argsort(order)] for k, v in ibl_f.items()}
+    feats["std_hf"] = np.median(std_hf, 0)
+    feats["std_raw"] = np.sqrt(np.mean(raw_var, 0) + np.var(raw_mean, 0))
+    feats["si_mad"] = np.median(si_mads, 0)
+    return feats
+
+
+def _outliers(x, k):
+    """True where x is more than k MAD-scaled deviations above the median across channels."""
+    med = np.median(x)
+    mad = 1.4826 * np.median(np.abs(x - med))
+    return x > med + k * mad
+
+
+def _label(feats, order, p):
+    """IBL decision rules applied to features."""
+    dead_t, noise_t = p["similarity_threshold"]
     hf, psd = feats["xcor_hf"], feats["psd_hf"]
     lf_sorted = feats["xcor_lf"][order]
- 
+
     labels = np.full(len(hf), "good", dtype="U5")
-    labels[hf < dead] = "dead"
-    labels[(hf > noise) | (psd > psd_t)] = "noise"
+    labels[hf < dead_t] = "dead"
+    k_mad = p["std_mad_threshold"]
+    noisy = (hf > noise_t) | (psd > p["psd_hf_threshold"]) \
+        | _outliers(feats["std_hf"], k_mad) | _outliers(feats["std_raw"], k_mad)
+    labels[noisy] = "noise"
     k = len(lf_sorted)
-    while k > 0 and lf_sorted[k - 1] < out:
+    while k > 0 and lf_sorted[k - 1] < p["outside_threshold"]:
         k -= 1
     labels[order[k:]] = "out"
     return labels
- 
- 
+
+
 def detect_bad_channels_ibl(rec, p, n_chunks=100, chunk_s=0.3, seed=0):
-    """Replacement for spre.detect_bad_channels. Returns (bad_channel_ids, labels, features)."""
+    """Performs IBL bad channel detection & SpikeInterface MAD noise detection."""
     locs = rec.get_channel_locations()
-    order = np.lexsort((locs[:, 0], locs[:, 1]))  # depth, then x
+    order = np.lexsort((locs[:, 0], locs[:, 1]))
     feats = _features(_chunks(rec, n_chunks, chunk_s, seed), rec.get_sampling_frequency(), order, p)
     labels = _label(feats, order, p)
-    return np.asarray(rec.channel_ids)[labels != "good"], labels, feats
- 
- 
+    
+    # Run SpikeInterface's bad channel detection using MAD
+    try:
+        si_bad_ids, _ = spre.detect_bad_channels(rec, method="mad")
+    except Exception:
+        si_bad_ids = np.array([])
+
+    return np.asarray(rec.channel_ids)[labels != "good"], labels, feats, si_bad_ids
+
+
 def _plot_traces(chunk, fs, labels, order, path, n, ctx=2, ms=30):
     rank = np.argsort(order)
     rows = [(l, i) for l in ("dead", "noise", "out") for i in np.where(labels == l)[0][:n]]
@@ -413,16 +441,14 @@ def _plot_traces(chunk, fs, labels, order, path, n, ctx=2, ms=30):
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
- 
- 
+
+
 def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
-                            n_chunks=30, chunk_s=0.3, seeds=(1, 2, 3, 4), n_examples=3):
+                            n_chunks=30, chunk_s=0.3, seeds=(1, 2, 3, 4), n_examples=3,
+                            custom_star_channels=None):
     """
-    rec    : recording given to detect_bad_channels_ibl
-    labels : labels returned by detect_bad_channels_ibl
-    feats  : features returned by detect_bad_channels_ibl
-    p      : params['preprocess']['bad_channels'] dict
-    seeds  : extra chunk draws for the stability check (the pipeline's own run used seed 0)
+    Generates diagnostics, incorporating SpikeInterface MAD plots and 
+    star-marking custom passed channel IDs.
     """
     out = Path(out_dir) / name
     out.mkdir(parents=True, exist_ok=True)
@@ -431,49 +457,72 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
     depth = locs[:, 1]
     order = np.lexsort((locs[:, 0], depth))
     labels = np.asarray(labels).astype(str)
- 
+
     print("Performing bad channel diagnostics...")
-    # Stability across random chunk draws
     runs = [labels] + [detect_bad_channels_ibl(rec, p, seed=s)[1] for s in tqdm(seeds, desc="stability")]
     frac = (np.array(runs) != "good").mean(0)
- 
-    # Threshold sensitivity: re-threshold the same features, so it is instant
+
+    dead_t, noise_t = p["similarity_threshold"]
+    out_t = p["outside_threshold"]
+    variants = []
+    for d in (-0.2, -0.1, 0.1, 0.2):
+        variants += [
+            ("similarity_threshold[0]", dead_t + d, {**p, "similarity_threshold": [dead_t + d, noise_t]}),
+            ("similarity_threshold[1]", noise_t + d, {**p, "similarity_threshold": [dead_t, noise_t + d]}),
+            ("outside_threshold", out_t + d, {**p, "outside_threshold": out_t + d}),
+        ]
+    k_mad = p["std_mad_threshold"]
+    variants += [("std_mad_threshold", k_mad + d, {**p, "std_mad_threshold": k_mad + d})
+                 for d in (-2, -1, 1, 2)]
     sweep = []
-    for key, pk in THRESH.items():
-        for d in (-0.2, -0.1, 0.1, 0.2):
-            lab = _label(feats, order, p, **{key: p[pk] + d})
-            counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
-            sweep.append({"param": key, "value": round(p[pk] + d, 3), **counts.to_dict(),
-                          "n_changed_vs_pipeline": int((lab != labels).sum())})
-    pd.DataFrame(sweep).to_csv(out / "threshold_sweep.csv", index=False)
- 
+    for param, value, pv in variants:
+        lab = _label(feats, order, pv)
+        counts = pd.Series(lab).value_counts().reindex(list(COLORS), fill_value=0)
+        sweep.append({"param": param, "value": round(value, 3), **counts.to_dict(),
+                      "n_changed_vs_pipeline": int((lab != labels).sum())})
+    pd.DataFrame(sweep).sort_values(["param", "value"]).to_csv(out / "threshold_sweep.csv", index=False)
+
     report = pd.DataFrame({"channel_id": rec.channel_ids, "x_um": locs[:, 0], "depth_um": depth,
                            "label": labels, **feats, "frac_runs_bad": frac})
     report.to_csv(out / "channel_report.csv", index=False)
- 
+
     print(f"Saving bad channel diagnostic figures to {out}...")
-    fig = plt.figure(figsize=(14, 11))
-    gs = fig.add_gridspec(2, 3)
-    panels = [("xcor_hf", [p["coh_psd_dead_threshold"], p["coh_psd_noise_threshold"]]),
-              ("xcor_lf", [p["coh_psd_out_threshold"]]),
-              ("psd_hf", [p["coh_psd_hf_threshold"]])]
+    fig = plt.figure(figsize=(26, 11))
+    gs = fig.add_gridspec(2, 6)
+    amp_limit = lambda x: np.median(x) + k_mad * 1.4826 * np.median(np.abs(x - np.median(x)))
+    
+    # Added SI MAD feature to panels
+    panels = [("xcor_hf", list(p["similarity_threshold"])),
+              ("xcor_lf", [p["outside_threshold"]]),
+              ("psd_hf", [p["psd_hf_threshold"]]),
+              ("std_hf", [amp_limit(feats["std_hf"])]),
+              ("std_raw", [amp_limit(feats["std_raw"])]),
+              ("si_mad", [amp_limit(feats["si_mad"])])]
+              
+    star_mask = np.isin(rec.channel_ids, custom_star_channels) if custom_star_channels is not None else np.zeros(len(rec.channel_ids), dtype=bool)
+
     for j, (key, lines) in enumerate(panels):
         ax = fig.add_subplot(gs[0, j])
         for lab, c in COLORS.items():
             m = labels == lab
             ax.scatter(feats[key][m], depth[m], s=8, c=c, label=f"{lab} ({m.sum()})")
+        
+        # Plot custom-selected channels as red stars if provided
+        if star_mask.any():
+            ax.scatter(feats[key][star_mask], depth[star_mask], s=120, c="red", marker="*", 
+                       edgecolors="black", zorder=5, label=f"custom ({star_mask.sum()})")
+
         for v in lines:
-            if v is not None:
-                ax.axvline(v, ls="--", c="k", lw=0.8)
+            ax.axvline(v, ls="--", c="k", lw=0.8)
         ax.set_title(key)
         if j == 0:
             ax.set_ylabel("depth (um)")
             ax.legend(fontsize=8)
- 
+
     chunks = list(_chunks(rec, n_chunks, chunk_s))
     f, _ = welch(chunks[0], fs=fs, nperseg=1024, axis=1)
     psd = np.mean([welch(c, fs=fs, nperseg=1024, axis=1)[1] for c in chunks], 0)
-    ax = fig.add_subplot(gs[1, :2])
+    ax = fig.add_subplot(gs[1, :3])
     g = labels == "good"
     if g.any():
         lo, med, hi = np.percentile(psd[g], [10, 50, 90], axis=0)
@@ -482,20 +531,22 @@ def bad_channels_diagnostic(rec, labels, feats, out_dir, p, name="group",
     for lab in ("dead", "noise", "out"):
         for j, i in enumerate(np.where(labels == lab)[0][:n_examples]):
             ax.plot(f, psd[i], c=COLORS[lab], lw=1, label=lab if j == 0 else None)
-    ax.axvline(p["coh_psd_nyquist"] * fs / 2, ls="--", c="k", lw=0.8)
+    ax.axvline(0.8 * fs / 2, ls="--", c="k", lw=0.8)
     ax.set(xscale="log", yscale="log", xlabel="Hz", ylabel="PSD (uV^2/Hz)", title="PSD: flagged vs good")
     ax.legend(fontsize=8)
- 
-    ax = fig.add_subplot(gs[1, 2])
+
+    ax = fig.add_subplot(gs[1, 3:])
     sc = ax.scatter(frac, depth, c=frac, s=8, vmin=0, vmax=1)
+    if star_mask.any():
+        ax.scatter(frac[star_mask], depth[star_mask], s=120, c="red", marker="*", edgecolors="black", zorder=5)
     ax.set(xlabel="fraction of runs flagged", ylabel="depth (um)", title="Label stability")
     fig.colorbar(sc, ax=ax)
     fig.tight_layout()
     fig.savefig(out / "overview.png", dpi=150)
     plt.close(fig)
- 
+
     _plot_traces(chunks[0], fs, labels, order, out / "traces.png", n_examples)
- 
+
     ids = np.asarray(rec.channel_ids)
     print(f"Channel labels: {pd.Series(labels).value_counts().to_dict()}")
     for lab in sorted(set(labels) - {"good"}):

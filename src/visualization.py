@@ -42,6 +42,8 @@ def save_probe_figure(
     channel_labels=None, 
     label_colors=None, 
     with_channel_ids=False, 
+    annotate_channels=True,
+    annotation_step=5,
     legend=True, 
     crop=True,
     top_pad_um=100,
@@ -56,24 +58,12 @@ def save_probe_figure(
 ):
     """
     Save a probe layout figure, optionally colored/labelled per channel and
-    cropped to just above the highest channel.
- 
-    Behavior
-    --------
-    - If `color_channels`, `channel_labels`, or `with_channel_ids` is given,
-      the figure is drawn with `si.plot_probe_map` (recording-aware).
-    - Otherwise it is drawn with `probeinterface.plotting.plot_probe`
-      (plain static layout).
- 
-    Cropping uses `rec.get_channel_locations()`, so if bad channels were removed
-    from `rec`, the crop follows the channels that remain.
- 
-    Returns the path of the saved PNG.
+    cropped to just above the highest channel. Includes channel text annotations.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{basename}.png"
- 
+
     # Resolve colors from labels if needed
     legend_handles = None
     if channel_labels is not None:
@@ -94,12 +84,12 @@ def save_probe_figure(
                       label=f"{l} ({int(np.sum(channel_labels == l))})")
                 for l in present
             ]
- 
+
     if color_channels is not None and len(color_channels) != rec.get_num_channels():
         raise ValueError("color_channels must have one color per channel in `rec`.")
- 
+
     use_widget = (color_channels is not None) or with_channel_ids
- 
+
     # Crop limits and figure size
     locs = rec.get_channel_locations()
     if crop:
@@ -109,9 +99,9 @@ def save_probe_figure(
         height_in = float(np.clip(width_in * aspect, min_height_in, max_height_in))
     else:
         height_in = max_height_in / 2
- 
+
     fig, ax = plt.subplots(figsize=(width_in, height_in))
- 
+
     if use_widget:
         sw.plot_probe_map(
             rec,
@@ -123,17 +113,52 @@ def save_probe_figure(
         )
     else:
         plot_probe(rec.get_probe(), ax=ax, **plot_kwargs)
- 
+
+    # Custom Channel Annotations
+    if annotate_channels:
+        channel_ids = rec.channel_ids
+        x_center = np.mean(locs[:, 0])
+
+        # Sort channels by depth (y-location) to step properly along depth
+        depth_order = np.argsort(locs[:, 1])
+
+        # Select every Nth channel along depth
+        sampled_indices = depth_order[::annotation_step]
+
+        for idx in sampled_indices:
+            ch_id = str(channel_ids[idx])
+            x, y = locs[idx]
+
+            # Extract numeric value (e.g., "imec0.ap#AP246'" -> "246")
+            match = re.search(r'\d+', ch_id[::-1])  # Search digits from end of string
+            label_text = match.group(0)[::-1] if match else ch_id
+
+            # Determine side of probe relative to probe center
+            if x < x_center:
+                # Left side: text offset left, right-aligned
+                ax.text(
+                    x - 4, y, label_text,
+                    ha='right', va='center',
+                    fontsize=6, color='black', alpha=0.85
+                )
+            else:
+                # Right side: text offset right, left-aligned
+                ax.text(
+                    x + 4, y, label_text,
+                    ha='left', va='center',
+                    fontsize=6, color='black', alpha=0.85
+                )
+
     if crop:
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(y_min, y_max)
- 
+
     if legend_handles:
         ax.legend(handles=legend_handles, loc="upper left",
                   bbox_to_anchor=(1.02, 1.0), frameon=False, fontsize=8)
     if title:
         ax.set_title(title)
- 
+
     fig.tight_layout()
     fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)

@@ -3,4 +3,4 @@
 # Keeps params.json in sync with params.default.json without
 # clobbering values the user has already customized.
 
-python3 merge_params.py
+python merge_params.py

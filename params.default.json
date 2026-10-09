@@ -30,17 +30,14 @@
         },
 
         "bad_channels": {
-            "detect_bad_channels_method": "coherence+psd",
-            "coh_psd_nneighbors": 11,
-            "coh_psd_hf_threshold": 0.02,
-            "coh_psd_dead_threshold": -0.5,
-            "coh_psd_noise_threshold": 1,
-            "coh_psd_out_threshold": -0.3,
-            "coh_psd_nyquist": 0.8,
-            "bad_channel_limit": 0.34,
+            "similarity_threshold": [-0.5, 1.0], 
+            "psd_hf_threshold": 0.02,
+            "outside_threshold": -0.3,
+            "std_mad_threshold": 5.0,
             "remove_bad_channels": true,
-            "debug_mode": false,
-            "generate_diagnostics": true
+            "bad_channel_limit": 0.1,      
+            "generate_diagnostics": true,
+            "debug_mode": false
         },
 
         "motion": {
