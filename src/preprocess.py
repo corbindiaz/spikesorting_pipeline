@@ -108,10 +108,26 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         print(f"Processing {temp_group_name}:")
                     params_bad = params_pre['bad_channels']
                     remove_cfg = params_bad.get('remove_bad_channels', True)
-                    if isinstance(remove_cfg, (list, tuple, np.ndarray)) & (not params_bad.get('generate_diagnostics', True)):
+                    
+                    # Check if a custom list was passed
+                    is_custom_list = isinstance(remove_cfg, (list, tuple, np.ndarray))
+                    generate_diag = params_bad.get('generate_diagnostics', True)
+
+                    channel_labels = None
+                    custom_channels = None
+
+                    if is_custom_list and not generate_diag:
                         print(f"Skipping bad channel detection. Removing channels {remove_cfg} instead.")
+                        bad_channel_ids = [c for c in remove_cfg if c in temp_group.channel_ids]
+                        custom_channels = bad_channel_ids
+                        
+                        # Create fallback channel_labels: 'good' by default, 'bad' for custom passed channels
+                        channel_labels = np.full(temp_group.get_num_channels(), "good", dtype="U5")
+                        custom_mask = np.isin(temp_group.channel_ids, custom_channels)
+                        channel_labels[custom_mask] = "bad"
+
                     else:
-                        if isinstance(remove_cfg, (list, tuple, np.ndarray)) & (params_bad.get('generate_diagnostics', True)):
+                        if is_custom_list and generate_diag:
                             print("Performing bad channel detection to generate diagnostics...")
                         else:
                             print("Detecting bad channels...")
@@ -131,25 +147,31 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         channel_label_path = preprocessed_folder / f"{temp_group_name}_channel_labels.csv"
                         channel_label_csv.to_csv(channel_label_path, index=False)
                         print(f"Channel labels saved to: {channel_label_path}")
-                    
-                    # Target channels to remove / highlight
-                    custom_channels = None
-                    
-                    if isinstance(remove_cfg, (list, tuple, np.ndarray)):
+
+                    # Resolve target channels to remove
+                    if is_custom_list:
                         channels_to_remove = [c for c in remove_cfg if c in temp_group.channel_ids]
                         custom_channels = channels_to_remove
                     else:
                         channels_to_remove = bad_channel_ids
 
-                    if params_bad.get('generate_diagnostics', True):
+                    # Run diagnostics if enabled
+                    if generate_diag and feats is not None:
                         bad_channels_diagnostic(
                             temp_group, channel_labels, feats, 
                             plots_pre / "bad_channel_diagnostics", 
                             params_bad, name=str(temp_group_name),
                             custom_star_channels=custom_channels
                         )
-                    
-                    save_probe_figure(temp_group, plots_pre, f"{temp_group_name}_bad_channels_map", channel_labels=channel_labels)
+
+                    # Save probe layout figure with thick borders on custom channels
+                    save_probe_figure(
+                        temp_group, 
+                        plots_pre, 
+                        f"{temp_group_name}_bad_channels_map", 
+                        channel_labels=channel_labels,
+                        custom_channels=custom_channels
+                    )
                     print(f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}")
                     
                     # Channel Removal Logic
@@ -339,7 +361,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
     return time_master
 
 
-COLORS = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "purple"}
+COLORS = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "blue"}
 
 
 def _chunks(rec, n, dur_s, seed=0):

@@ -30,9 +30,9 @@ DEFAULT_LABEL_COLORS = {
     "good": "tab:green",
     "dead": "red",
     "noise": "orange",
-    "out": "purple",
+    "out": "blue",
+    "bad": "purple"  # Fallback for custom channels when detection is skipped
 }
- 
  
 def save_probe_figure(
     rec,
@@ -41,6 +41,7 @@ def save_probe_figure(
     color_channels=None, 
     channel_labels=None, 
     label_colors=None, 
+    custom_channels=None,
     with_channel_ids=False, 
     annotate_channels=True,
     annotation_step=5,
@@ -58,7 +59,8 @@ def save_probe_figure(
 ):
     """
     Save a probe layout figure, optionally colored/labelled per channel and
-    cropped to just above the highest channel. Includes channel text annotations.
+    cropped to just above the highest channel. Includes channel text annotations
+    and highlights custom passed channels with a dark border.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -114,6 +116,43 @@ def save_probe_figure(
     else:
         plot_probe(rec.get_probe(), ax=ax, **plot_kwargs)
 
+    # Highlight custom channels with a thick dark border on the electrode pad
+    probe = rec.get_probe()
+    if custom_channels is not None and len(custom_channels) > 0:
+        custom_set = set(custom_channels)
+        channel_ids = rec.channel_ids
+        contact_shapes = probe.contact_shapes
+        contact_shape_params = probe.contact_shape_params
+        plane_axes = probe.get_planear_axes()
+
+        for idx, ch_id in enumerate(channel_ids):
+            if ch_id in custom_set:
+                x, y = locs[idx]
+                shape = contact_shapes[idx] if contact_shapes is not None else "rectangle"
+                params = contact_shape_params[idx] if contact_shape_params is not None else {}
+
+                # Draw dark border patch based on electrode contact geometry
+                if shape in ("rectangle", "square"):
+                    w = params.get("width", 12)
+                    h = params.get("height", 12)
+                    rect = Rectangle(
+                        (x - w / 2, y - h / 2), w, h,
+                        fill=False, edgecolor="black", linewidth=2.0, zorder=10
+                    )
+                    ax.add_patch(rect)
+                elif shape == "circle":
+                    r = params.get("radius", 6)
+                    circle = plt.Circle(
+                        (x, y), r,
+                        fill=False, edgecolor="black", linewidth=2.0, zorder=10
+                    )
+                    ax.add_patch(circle)
+
+        if legend and legend_handles is not None:
+            legend_handles.append(
+                Patch(facecolor="none", edgecolor="black", linewidth=2.0, label="Custom Channel")
+            )
+
     # Custom Channel Annotations
     if annotate_channels:
         channel_ids = rec.channel_ids
@@ -123,30 +162,39 @@ def save_probe_figure(
         depth_order = np.argsort(locs[:, 1])
 
         # Select every Nth channel along depth
-        sampled_indices = depth_order[::annotation_step]
+        sampled_indices = list(depth_order[::annotation_step])
+
+        # Ensure all custom channels are included in annotations regardless of step
+        if custom_channels is not None:
+            custom_set = set(custom_channels)
+            for idx, ch_id in enumerate(channel_ids):
+                if ch_id in custom_set and idx not in sampled_indices:
+                    sampled_indices.append(idx)
 
         for idx in sampled_indices:
             ch_id = str(channel_ids[idx])
             x, y = locs[idx]
+            is_custom = (custom_channels is not None) and (channel_ids[idx] in custom_channels)
 
             # Extract numeric value (e.g., "imec0.ap#AP246'" -> "246")
-            match = re.search(r'\d+', ch_id[::-1])  # Search digits from end of string
+            match = re.search(r'\d+', ch_id[::-1])
             label_text = match.group(0)[::-1] if match else ch_id
 
-            # Determine side of probe relative to probe center
+            font_weight = 'bold' if is_custom else 'normal'
+
             if x < x_center:
-                # Left side: text offset left, right-aligned
                 ax.text(
                     x - 4, y, label_text,
                     ha='right', va='center',
-                    fontsize=6, color='black', alpha=0.85
+                    fontsize=6, color='black', alpha=0.9,
+                    fontweight=font_weight
                 )
             else:
-                # Right side: text offset right, left-aligned
                 ax.text(
                     x + 4, y, label_text,
                     ha='left', va='center',
-                    fontsize=6, color='black', alpha=0.85
+                    fontsize=6, color='black', alpha=0.9,
+                    fontweight=font_weight
                 )
 
     if crop:
