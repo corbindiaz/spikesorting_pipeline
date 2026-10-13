@@ -1,28 +1,22 @@
-import time
-import os
-import sys
-from IPython.utils.io import capture_output
-import warnings
-import traceback
-import re
-from collections import Counter
 import argparse
+import sys
+import time
+import traceback
 from pathlib import Path
-import zarr
-from tqdm import tqdm
 
+import matplotlib
 import numpy as np
-
 from sklearn.decomposition import PCA
 from slay import compute_slay_merges
 
-import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 plt.ioff()
 
 from utils import import_analyzer
 from visualization import slay_graphs
+
 
 def curation(
     recording,
@@ -34,7 +28,7 @@ def curation(
     pass
 
 def testing():
-    start = time.perf_counter()
+    start = time.perf_counter()  # noqa: F841
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--results_folder",
@@ -51,7 +45,7 @@ def testing():
     args = parser.parse_args()
     units_to_merge = 'kilosort'
     root = args.results_folder
-    results_root = Path(root)
+    results_root = Path(root)  # noqa: F841
     step_name = args.step
     base = root / step_name
 
@@ -69,7 +63,7 @@ def testing():
         print("Processing:", analyzer_path)
         print()
         result = None
-        analyzer, rec, recording_path = import_analyzer(analyzer_path)
+        analyzer, rec, recording_path = import_analyzer(analyzer_path)  # noqa: RUF059
         if units_to_merge == "bombcell":
             if not result:
                 print(f"{analyzer_path.name}: Bombcell was skipped, no Bombcell labels available for SLAy. Using Kilosort labels instead.")
@@ -134,7 +128,7 @@ def slay_and_graph(slay_analyzer, out_dir, plot_dir):
     slay_model_path = slay_dir / "slay_model.pt"
 
     try:
-        merges, sorting_analyzer, slay_metrics = compute_slay_merges(slay_analyzer, model_path=str(slay_model_path))
+        merges, sorting_analyzer, slay_metrics = compute_slay_merges(slay_analyzer, model_path=str(slay_model_path))  # noqa: RUF059
     finally:
         sys.settrace(None)
 

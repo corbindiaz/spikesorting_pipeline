@@ -1,30 +1,30 @@
+import argparse
 import io
+import json
+import os
 import re
 import sys
-import json
 import textwrap
-import traceback
 import time
-from datetime import datetime
-import os
+import traceback
 import warnings
-import argparse
+from datetime import datetime
 from pathlib import Path
-from sklearn.exceptions import InconsistentVersionWarning
-
-from preprocess import preprocess
-from sorter_kilosort import sorter_kilosort
-from postprocess import postprocess
-from export_phy import export_phy
-from export_bombcell import export_bombcell
-from curation import curation
-from visualization import save_process_timing_graph
 
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.figure import Figure
+from sklearn.exceptions import InconsistentVersionWarning
 
-PARAMS_PATH = 'params.json'
+from curation import curation
+from export_bombcell import export_bombcell
+from export_phy import export_phy
+from postprocess import postprocess
+from preprocess import preprocess
+from sorter_kilosort import sorter_kilosort
+from visualization import save_process_timing_graph
+
+PARAMS_PATH = "params.json"
 
 with open(PARAMS_PATH) as f:
     params = json.load(f)
@@ -61,10 +61,8 @@ def main():
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
     sys.stdout = Tee(orig_stdout, log_buffer)
     sys.stderr = Tee(orig_stderr, log_buffer)
-    
-    parser = argparse.ArgumentParser(
-        description="Run the ephys processing pipeline."
-    )
+
+    parser = argparse.ArgumentParser(description="Run the ephys processing pipeline.")
 
     parser.add_argument(
         "--recording",
@@ -90,7 +88,7 @@ def main():
             "bombcell",
             "export",
             "curation",
-            "rest"
+            "rest",
         ],
         default=DEFAULT_STEPS,
         help=(
@@ -111,26 +109,28 @@ def main():
 
     if not args.steps:
         parser.error("At least one pipeline step must be specified.")
-        
+
     first_step = args.steps[0]
     args.steps = expand_rest(args.steps, parser)
-    print(f'Steps to run: {args.steps}' )
+    print(f"Steps to run: {args.steps}")
     preprocess_folder = args.output / "preprocessed"
 
     if first_step == "preprocess":
         if args.recording is None:
-            parser.error(
-                "--recording is required when starting with preprocess."
-            )
+            parser.error("--recording is required when starting with preprocess.")
         else:
-            print(f"Recording input given. Using recording at {args.recording} for preprocessing.")
+            print(
+                f"Recording input given. Using recording at {args.recording} for preprocessing."
+            )
     elif first_step == "kilosort":
         if not preprocess_folder.exists():
             parser.error(
                 f"--Preprocessed recording must exist as {preprocess_folder} to run sorting."
-            )   
+            )
         else:
-            print(f"Preprocessed recording found. Using {preprocess_folder} for sorting.")
+            print(
+                f"Preprocessed recording found. Using {preprocess_folder} for sorting."
+            )
 
     analyzer_folder = args.output / "analyzer"
 
@@ -200,8 +200,10 @@ def main():
             except BaseException:
                 failed = True
                 print()
-                print(f"STEP FAILED: {step_name} "
-                      f"(after {time.perf_counter() - step_start:.2f} seconds)")
+                print(
+                    f"STEP FAILED: {step_name} "
+                    f"(after {time.perf_counter() - step_start:.2f} seconds)"
+                )
                 raise
             finally:
                 plt.close("all")
@@ -210,7 +212,7 @@ def main():
             print()
             print(f"COMPLETED STEP: {step_name}")
             print(f"TOTAL COMPUTATION TIME: {step_elapsed:.2f} seconds")
-        
+
         print()
         print("=" * width)
         print("=" * width)
@@ -227,8 +229,8 @@ def main():
     finally:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         suffix = "_FAILED" if failed else ""
-        
-        if params['diagnostic']['print_time_computation_graph']:
+
+        if params["diagnostic"]["print_time_computation_graph"]:
             plot_path = args.output / f"computation_time_{timestamp}{suffix}.png"
             try:
                 save_process_timing_graph(time_master, plot_path)
@@ -237,7 +239,7 @@ def main():
 
         # Save the PDF last so it includes everything above.
         try:
-            if params['diagnostic']['print_terminal_pdf']:
+            if params["diagnostic"]["print_terminal_pdf"]:
                 save_terminal_pdf(
                     log_buffer.getvalue(),
                     args.output / f"terminal_output_{timestamp}{suffix}.pdf",
@@ -247,41 +249,43 @@ def main():
         finally:
             sys.stdout, sys.stderr = orig_stdout, orig_stderr
 
-def expand_rest(steps, parser, SUB_STEPS = SUB_STEPS):
+
+def expand_rest(steps, parser, SUB_STEPS=SUB_STEPS):
     """Expand a trailing 'rest' entry in --steps into the remaining steps.
- 
+
     '<step_name> rest' means: start at <step_name> and run every step after
     it, in pipeline order. Anything listed before <step_name> is preserved
     as-is. 'rest' must be the last entry in the list.
     """
     if "rest" not in steps:
         return steps
- 
+
     rest_idx = steps.index("rest")
- 
+
     if rest_idx != len(steps) - 1:
         parser.error("'rest' must be the last entry in --steps.")
- 
+
     if rest_idx == 0:
         parser.error(
             "'rest' must follow a step name indicating where to start "
             "(e.g. '--steps kilosort rest')."
         )
- 
+
     start_step = steps[rest_idx - 1]
- 
+
     order = SUB_STEPS if start_step in ("phy", "bombcell") else DEFAULT_STEPS
- 
+
     if start_step not in order:
         parser.error(f"Cannot determine step order for '{start_step}'.")
- 
+
     start_pos = order.index(start_step)
- 
+
     # Keep everything listed before start_step untouched, then append
     # start_step and everything after it in the chosen order.
-    expanded = steps[:rest_idx - 1] + order[start_pos:]
- 
+    expanded = steps[: rest_idx - 1] + order[start_pos:]
+
     return expanded
+
 
 def run_export(
     recording_path_,
@@ -303,7 +307,7 @@ def run_export(
         output_folder=output_folder,
         params=params,
         time_master=time_master,
-        step=step+0.5,
+        step=step + 0.5,
     )
 
     return time_master
@@ -344,18 +348,20 @@ def save_terminal_pdf(text, pdf_path, wrap=110, lines_per_page=80):
     lines = []
     for line in _clean_log(text):
         lines.extend(
-            textwrap.wrap(line, wrap, drop_whitespace=False,
-                          replace_whitespace=False) or [""]
+            textwrap.wrap(line, wrap, drop_whitespace=False, replace_whitespace=False)
+            or [""]
         )
 
     with PdfPages(pdf_path) as pdf:
         for start in range(0, max(len(lines), 1), lines_per_page):
-            chunk = "\n".join(lines[start:start + lines_per_page])
+            chunk = "\n".join(lines[start : start + lines_per_page])
             chunk = chunk.replace("$", r"\$")  # avoid matplotlib mathtext
             fig = Figure(figsize=(8.5, 11))
-            fig.text(0.05, 0.97, chunk, va="top", ha="left",
-                     family="monospace", fontsize=7)
+            fig.text(
+                0.05, 0.97, chunk, va="top", ha="left", family="monospace", fontsize=7
+            )
             pdf.savefig(fig)
+
 
 if __name__ == "__main__":
     main()

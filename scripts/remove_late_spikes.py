@@ -1,10 +1,16 @@
 import gc
 import os
 import shutil
-import numpy as np
 from pathlib import Path
 
-REQUIRED = ["spike_times.npy", "spike_clusters.npy", "amplitudes.npy", "spike_templates.npy"]
+import numpy as np
+
+REQUIRED = [
+    "spike_times.npy",
+    "spike_clusters.npy",
+    "amplitudes.npy",
+    "spike_templates.npy",
+]
 OPTIONAL = ["pc_features.npy", "template_features.npy"]
 CHUNK = 1_000_000
 
@@ -39,7 +45,9 @@ def check_spike_count_discrepancy(phy):
     gc.collect()
 
     counts = {f: s[0] for f, s in shapes.items()}
-    flatten = {f: (f in REQUIRED and len(s) > 1 and s[1:] == (1,)) for f, s in shapes.items()}
+    flatten = {
+        f: (f in REQUIRED and len(s) > 1 and s[1:] == (1,)) for f, s in shapes.items()
+    }
 
     if len(set(counts.values())) == 1 and not any(flatten.values()):
         print("Spike counts match across all files.")
@@ -49,7 +57,9 @@ def check_spike_count_discrepancy(phy):
     print("Spike counts before:")
     for f, n in counts.items():
         print(f"  {f:24s} {n}")
-    print(f"Trimming all per-spike arrays to {n_keep} spikes (dropping from the end).\n")
+    print(
+        f"Trimming all per-spike arrays to {n_keep} spikes (dropping from the end).\n"
+    )
 
     backup = phy / "backup_before_trim"
     backup.mkdir(exist_ok=True)

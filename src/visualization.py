@@ -1,51 +1,52 @@
-from IPython.utils.io import capture_output
-import warnings
 import re
+import warnings
 from collections import Counter
 from pathlib import Path
-from tqdm import tqdm
-
-import numpy as np
-
-from sklearn.decomposition import PCA
-
-import spikeinterface.widgets as sw
-from probeinterface.plotting import plot_probe
 
 import bombcell as bc
-
 import matplotlib
+import numpy as np
+import spikeinterface.widgets as sw
+from IPython.utils.io import capture_output
+from probeinterface.plotting import plot_probe
+from tqdm import tqdm
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 plt.ioff()
-from matplotlib import cm
-from matplotlib.patches import Patch, Rectangle, Circle
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, Patch, Rectangle
+from spikeinterface.sortingcomponents.motion import correct_motion_on_peaks
+
 
 def save_widget(w, path, dpi=150):
     fig = w.figure
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
 
+
 DEFAULT_LABEL_COLORS = {
     "good": "tab:green",
     "dead": "red",
     "noise": "orange",
     "out": "blue",
-    "bad": "purple"  # Fallback for custom channels when detection is skipped
+    "bad": "purple",  # Fallback for custom channels when detection is skipped
 }
+
 
 def save_probe_figure(
     rec,
     out_dir,
     basename="probe_layout",
-    color_channels=None, 
-    channel_labels=None, 
-    label_colors=None, 
+    color_channels=None,
+    channel_labels=None,
+    label_colors=None,
     custom_channels=None,
-    with_channel_ids=False, 
+    with_channel_ids=False,
     annotate_channels=True,
     annotation_step=5,
-    legend=True, 
+    legend=True,
     crop=True,
     top_pad_um=100,
     bottom_pad_um=50,
@@ -82,8 +83,11 @@ def save_probe_figure(
         if legend:
             present = [l for l in dict.fromkeys(map(str, channel_labels))]
             legend_handles = [
-                Patch(facecolor=cmap.get(l, "gray"), edgecolor="k",
-                      label=f"{l} ({int(np.sum(channel_labels == l))})")
+                Patch(
+                    facecolor=cmap.get(l, "gray"),
+                    edgecolor="k",
+                    label=f"{l} ({int(np.sum(channel_labels == l))})",
+                )
                 for l in present
             ]
 
@@ -127,29 +131,49 @@ def save_probe_figure(
         for idx, ch_id in enumerate(channel_ids):
             if ch_id in custom_set:
                 x, y = locs[idx]
-                shape = contact_shapes[idx] if contact_shapes is not None else "rectangle"
-                params = contact_shape_params[idx] if contact_shape_params is not None else {}
+                shape = (
+                    contact_shapes[idx] if contact_shapes is not None else "rectangle"
+                )
+                params = (
+                    contact_shape_params[idx]
+                    if contact_shape_params is not None
+                    else {}
+                )
 
                 # Draw dark border patch based on electrode contact geometry
                 if shape in ("rectangle", "square"):
                     w = params.get("width", 12)
                     h = params.get("height", 12)
                     rect = Rectangle(
-                        (x - w / 2, y - h / 2), w, h,
-                        fill=False, edgecolor="black", linewidth=2.0, zorder=10
+                        (x - w / 2, y - h / 2),
+                        w,
+                        h,
+                        fill=False,
+                        edgecolor="black",
+                        linewidth=2.0,
+                        zorder=10,
                     )
                     ax.add_patch(rect)
                 elif shape == "circle":
                     r = params.get("radius", 6)
                     circle = Circle(
-                        (x, y), r,
-                        fill=False, edgecolor="black", linewidth=2.0, zorder=10
+                        (x, y),
+                        r,
+                        fill=False,
+                        edgecolor="black",
+                        linewidth=2.0,
+                        zorder=10,
                     )
                     ax.add_patch(circle)
 
         if legend and legend_handles is not None:
             legend_handles.append(
-                Patch(facecolor="none", edgecolor="black", linewidth=2.0, label="Custom Channel")
+                Patch(
+                    facecolor="none",
+                    edgecolor="black",
+                    linewidth=2.0,
+                    label="Custom Channel",
+                )
             )
 
     # Custom Channel Annotations
@@ -173,27 +197,39 @@ def save_probe_figure(
         for idx in sampled_indices:
             ch_id = str(channel_ids[idx])
             x, y = locs[idx]
-            is_custom = (custom_channels is not None) and (channel_ids[idx] in custom_channels)
+            is_custom = (custom_channels is not None) and (
+                channel_ids[idx] in custom_channels
+            )
 
             # Extract numeric value (e.g., "imec0.ap#AP246'" -> "246")
-            match = re.search(r'\d+', ch_id[::-1])
+            match = re.search(r"\d+", ch_id[::-1])
             label_text = match.group(0)[::-1] if match else ch_id
 
-            font_weight = 'bold' if is_custom else 'normal'
+            font_weight = "bold" if is_custom else "normal"
 
             if x < x_center:
                 ax.text(
-                    x - 4, y, label_text,
-                    ha='right', va='center',
-                    fontsize=6, color='black', alpha=0.9,
-                    fontweight=font_weight
+                    x - 4,
+                    y,
+                    label_text,
+                    ha="right",
+                    va="center",
+                    fontsize=6,
+                    color="black",
+                    alpha=0.9,
+                    fontweight=font_weight,
                 )
             else:
                 ax.text(
-                    x + 4, y, label_text,
-                    ha='left', va='center',
-                    fontsize=6, color='black', alpha=0.9,
-                    fontweight=font_weight
+                    x + 4,
+                    y,
+                    label_text,
+                    ha="left",
+                    va="center",
+                    fontsize=6,
+                    color="black",
+                    alpha=0.9,
+                    fontweight=font_weight,
                 )
 
     if crop:
@@ -201,8 +237,13 @@ def save_probe_figure(
         ax.set_ylim(y_min, y_max)
 
     if legend_handles:
-        ax.legend(handles=legend_handles, loc="upper left",
-                  bbox_to_anchor=(1.02, 1.0), frameon=False, fontsize=8)
+        ax.legend(
+            handles=legend_handles,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            frameon=False,
+            fontsize=8,
+        )
     if title:
         ax.set_title(title)
 
@@ -215,10 +256,14 @@ def save_probe_figure(
 def save_text_summary_image(analyzer, out_dir: Path, basename: str = "summary"):
     """Save a quick, robust summary as an image (works even if no extensions exist)."""
     lines = []
-    lines.append(f"Analyzer: {Path(analyzer.folder).name if getattr(analyzer, 'folder', None) else 'N/A'}")
+    lines.append(
+        f"Analyzer: {Path(analyzer.folder).name if getattr(analyzer, 'folder', None) else 'N/A'}"
+    )
     lines.append(f"Units: {analyzer.sorting.get_num_units()}")
     try:
-        lines.append(f"Sampling rate (Hz): {analyzer.sorting.get_sampling_frequency():.2f}")
+        lines.append(
+            f"Sampling rate (Hz): {analyzer.sorting.get_sampling_frequency():.2f}"
+        )
     except Exception:
         lines.append("Sampling rate (Hz): N/A")
 
@@ -233,14 +278,18 @@ def save_text_summary_image(analyzer, out_dir: Path, basename: str = "summary"):
     if analyzer.has_extension("waveforms"):
         wf = analyzer.get_extension("waveforms")
         ms_before = wf.params.get("ms_before", None)
-        ms_after  = wf.params.get("ms_after", None)
+        ms_after = wf.params.get("ms_after", None)
         lines.append(f"Waveforms window (ms): {ms_before} before, {ms_after} after")
     else:
         lines.append("Waveforms window (ms): N/A (no 'waveforms' extension)")
 
     # Recording info (light)
     try:
-        rec = analyzer.recording or (analyzer.get_temporary_recording() if analyzer.has_temporary_recording() else None)
+        rec = analyzer.recording or (
+            analyzer.get_temporary_recording()
+            if analyzer.has_temporary_recording()
+            else None
+        )
         if rec is not None:
             lines.append(f"Recording: {type(rec).__name__}")
             try:
@@ -253,11 +302,13 @@ def save_text_summary_image(analyzer, out_dir: Path, basename: str = "summary"):
     fig = plt.figure(figsize=(10, 6))
     plt.axis("off")
     plt.text(
-        0.01, 0.99,
+        0.01,
+        0.99,
         "\n".join(lines),
-        va="top", ha="left",
+        va="top",
+        ha="left",
         fontsize=12,
-        family="monospace"
+        family="monospace",
     )
     fig.tight_layout()
 
@@ -267,7 +318,9 @@ def save_text_summary_image(analyzer, out_dir: Path, basename: str = "summary"):
     print("Saved summary image:", out_path)
 
 
-def save_quality_histograms(analyzer, out_dir: Path, cols=("firing_rate", "snr", "isi_violations_ratio")):
+def save_quality_histograms(
+    analyzer, out_dir: Path, cols=("firing_rate", "snr", "isi_violations_ratio")
+):
     """If quality_metrics exists, save a histogram panel image for a few common columns."""
     if not analyzer.has_extension("quality_metrics"):
         print("No 'quality_metrics' extension found; skipping quality histograms.")
@@ -284,11 +337,13 @@ def save_quality_histograms(analyzer, out_dir: Path, cols=("firing_rate", "snr",
 
     available = [c for c in cols if c in getattr(df, "columns", [])]
     if not available:
-        print("Quality metrics present, but none of the requested columns are available.")
+        print(
+            "Quality metrics present, but none of the requested columns are available."
+        )
         return
 
     n = len(available)
-    fig, axes = plt.subplots(1, n, figsize=(4*n, 3))
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 3))
     if n == 1:
         axes = [axes]
 
@@ -305,7 +360,8 @@ def save_quality_histograms(analyzer, out_dir: Path, cols=("firing_rate", "snr",
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("Saved quality histogram image:", out_path)
-    
+
+
 def plot_peak_localization(
     recording,
     motion_info,
@@ -314,10 +370,6 @@ def plot_peak_localization(
     time_lim1=3300.0,
     subsample=5,
 ):
-    import matplotlib.pyplot as plt
-    import spikeinterface as si
-    from spikeinterface.preprocessing import load_motion_info
-    from spikeinterface.sortingcomponents.motion import correct_motion_on_peaks
 
     def _short_chan_label(ch_id):
         s = str(ch_id)
@@ -325,7 +377,9 @@ def plot_peak_localization(
             s = s.split("#")[-1]
         return s.replace("AP", "").strip() or s
 
-    def plot_probe_custom_on_axis(ax, recording, label_stride=8, show_site_labels=False):
+    def plot_probe_custom_on_axis(
+        ax, recording, label_stride=8, show_site_labels=False
+    ):
         probe = recording.get_probe()
         positions = np.asarray(probe.contact_positions)
         contact_ids = probe.contact_ids
@@ -378,7 +432,6 @@ def plot_peak_localization(
 
         return x_offset
 
-
     peaks = motion_info["peaks"]
     peak_locations = motion_info["peak_locations"]
     motion = motion_info["motion"]
@@ -406,20 +459,18 @@ def plot_peak_localization(
 
     amp_key = "amplitude" if "amplitude" in peaks.dtype.names else None
     if amp_key is None:
-        raise KeyError(
-            f"No amplitude column in peaks. Available: {peaks.dtype.names}"
-        )
+        raise KeyError(f"No amplitude column in peaks. Available: {peaks.dtype.names}")
 
     amps = np.abs(np.asarray(peaks[amp_key][idx], dtype=float))
     amps = amps / (np.quantile(amps, 0.95) + 1e-12)
 
     c = plt.get_cmap("inferno")(np.clip(amps, 0, 1))
 
-    color_kwargs = dict(
-        alpha=0.35,
-        s=4,
-        c=c,
-    )
+    color_kwargs = {
+        "alpha": 0.35,
+        "s": 4,
+        "c": c,
+    }
 
     probe = recording.get_probe()
     py = np.asarray(probe.contact_positions)[:, 1]
@@ -485,8 +536,11 @@ def plot_peak_localization(
     print(f"Time window: {time_lim0:.1f}–{time_lim1:.1f} s")
     print(f"Peaks in window (before subsample): {int(np.sum(mask)):,}")
     print(f"Peaks plotted (subsample x{subsample}): {idx.size:,}")
-    
-def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics, titles, param):
+
+
+def save_bombcell_static_plots(
+    phy_out, bombcell_dir, save_dir, quality_metrics, titles, param
+):
     output_dir = save_dir / "bombcell_unit_plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -500,10 +554,7 @@ def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics,
     }
 
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="FigureCanvasAgg is non-interactive"
-        )
+        warnings.filterwarnings("ignore", message="FigureCanvasAgg is non-interactive")
 
         with capture_output():
             gui = bc.unit_quality_gui(
@@ -511,9 +562,9 @@ def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics,
                 quality_metrics=quality_metrics,
                 param=param,
                 save_path=str(bombcell_dir),
-                auto_advance=False
+                auto_advance=False,
             )
-            
+
     # print("GUI units:", gui.n_units)
     # print("BombCell labels:", len(titles))
 
@@ -556,11 +607,7 @@ def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics,
             gui.plot_amplitudes_over_time(ax_amplitude, unit_data)
 
             ax_bin_metrics = plt.subplot2grid(
-                (100, 30),
-                (85, 2),
-                rowspan=10,
-                colspan=10,
-                sharex=ax_amplitude
+                (100, 30), (85, 2), rowspan=10, colspan=10, sharex=ax_amplitude
             )
             gui.plot_time_bin_metrics(ax_bin_metrics, unit_data)
 
@@ -570,10 +617,7 @@ def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics,
             gui.plot_histograms_panel(fig, unit_data)
 
             fig.suptitle(
-                f"BOMBCELL LABEL: {label}",
-                fontsize=30,
-                fontweight="bold",
-                y=1.01
+                f"BOMBCELL LABEL: {label}", fontsize=30, fontweight="bold", y=1.01
             )
 
             fig.subplots_adjust(
@@ -614,7 +658,8 @@ def save_bombcell_static_plots(phy_out, bombcell_dir, save_dir, quality_metrics,
             print(f"Skipping unit {unit_id}.")
 
     print(f"Finished BombCell static plots: {output_dir}")
-    
+
+
 def save_bombcell_detail_plots(plot_dir):
     plot_dir = Path(plot_dir)
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -634,10 +679,11 @@ def save_bombcell_detail_plots(plot_dir):
             title = ax.get_title().strip()
 
             if not title:
-                labels = [
-                    text.get_text().strip()
-                    for text in ax.get_legend().get_texts()
-                ] if ax.get_legend() else []
+                labels = (
+                    [text.get_text().strip() for text in ax.get_legend().get_texts()]
+                    if ax.get_legend()
+                    else []
+                )
 
                 if labels:
                     title = "_".join(labels)
@@ -645,16 +691,12 @@ def save_bombcell_detail_plots(plot_dir):
             if not title:
                 title = f"plotDetails_{plot_count:04d}"
 
-            title = re.sub(r'[<>:"/\\|?*]', '_', title)
-            title = re.sub(r'\s+', '_', title)
+            title = re.sub(r'[<>:"/\\|?*]', "_", title)
+            title = re.sub(r"\s+", "_", title)
 
             filename = plot_dir / f"{title}_{plot_count:04d}.png"
 
-            fig.savefig(
-                filename,
-                dpi=150,
-                bbox_inches="tight"
-            )
+            fig.savefig(filename, dpi=150, bbox_inches="tight")
 
         plt.close(fig)
 
@@ -662,12 +704,14 @@ def save_bombcell_detail_plots(plot_dir):
 
     return original_show
 
+
 def save_bombcell_kilosort_label_graph(bombcell_labels, kilosort_labels, plot_dir):
     bombcell_counts = Counter(bombcell_labels)
     kilosort_counts = Counter(kilosort_labels)
 
     fig, axes = plt.subplots(
-        2, 2,
+        2,
+        2,
         figsize=(12, 10),
         gridspec_kw={"height_ratios": [1, 1.2]},
     )
@@ -680,8 +724,7 @@ def save_bombcell_kilosort_label_graph(bombcell_labels, kilosort_labels, plot_di
         values = list(counts.values())
 
         bar_colors = [
-            "green" if str.lower(str(label)) == "good" else "blue"
-            for label in labels
+            "green" if str.lower(str(label)) == "good" else "blue" for label in labels
         ]
 
         bars = ax.bar(labels, values, color=bar_colors)
@@ -752,11 +795,22 @@ def save_bombcell_kilosort_label_graph(bombcell_labels, kilosort_labels, plot_di
         bbox_inches="tight",
     )
     plt.close()
-    
-    return str(plot_dir / "bombcell_vs_kilosort_labels.png")
-    
-def slay_graphs(unit_a, unit_b, latent_2d, labels, correlograms, idx_a, idx_b, lags, slay_metrics, slay_plot_dir):
 
+    return str(plot_dir / "bombcell_vs_kilosort_labels.png")
+
+
+def slay_graphs(
+    unit_a,
+    unit_b,
+    latent_2d,
+    labels,
+    correlograms,
+    idx_a,
+    idx_b,
+    lags,
+    slay_metrics,
+    slay_plot_dir,
+):
 
     auto_a = correlograms[idx_a, idx_a]
     auto_b = correlograms[idx_b, idx_b]
@@ -771,8 +825,22 @@ def slay_graphs(unit_a, unit_b, latent_2d, labels, correlograms, idx_a, idx_b, l
     gs = fig.add_gridspec(3, 1, height_ratios=[4, 2.5, 1.5], hspace=0.4)
 
     ax_pca = fig.add_subplot(gs[0])
-    ax_pca.scatter(latent_2d[labels == 0, 0], latent_2d[labels == 0, 1], label=f"Unit {unit_a}", color="red", alpha=0.5, s=8)
-    ax_pca.scatter(latent_2d[labels == 1, 0], latent_2d[labels == 1, 1], label=f"Unit {unit_b}", color="blue", alpha=0.5, s=8)
+    ax_pca.scatter(
+        latent_2d[labels == 0, 0],
+        latent_2d[labels == 0, 1],
+        label=f"Unit {unit_a}",
+        color="red",
+        alpha=0.5,
+        s=8,
+    )
+    ax_pca.scatter(
+        latent_2d[labels == 1, 0],
+        latent_2d[labels == 1, 1],
+        label=f"Unit {unit_b}",
+        color="blue",
+        alpha=0.5,
+        s=8,
+    )
     ax_pca.set_xlabel("PC 1")
     ax_pca.set_ylabel("PC 2")
     ax_pca.set_title(f"Latent Space PCA: Units {unit_a} + {unit_b}")
@@ -798,12 +866,25 @@ def slay_graphs(unit_a, unit_b, latent_2d, labels, correlograms, idx_a, idx_b, l
         f"Final metric:          {final_metric:.4f}"
     )
 
-    ax_metrics.text(0, 1, metric_text, fontsize=10, verticalalignment="top", horizontalalignment="left", family="monospace")
+    ax_metrics.text(
+        0,
+        1,
+        metric_text,
+        fontsize=10,
+        verticalalignment="top",
+        horizontalalignment="left",
+        family="monospace",
+    )
     ax_metrics.set_title("SLAy Metrics", loc="left")
 
     fig.suptitle(f"SLAy Merge: Units {unit_a} + {unit_b}", fontsize=14)
-    plt.savefig(slay_plot_dir / f"slay_merge_{unit_a}_{unit_b}.png", dpi=200, bbox_inches="tight")
+    plt.savefig(
+        slay_plot_dir / f"slay_merge_{unit_a}_{unit_b}.png",
+        dpi=200,
+        bbox_inches="tight",
+    )
     plt.close(fig)
+
 
 def save_process_timing_graph(times, plot_path):
     processes = list(times.keys())
@@ -834,8 +915,7 @@ def save_process_timing_graph(times, plot_path):
         process_totals[process] = total
 
     part_subpart_totals = {
-        part: {subpart: 0 for subpart in subparts[part]}
-        for part in parts
+        part: {subpart: 0 for subpart in subparts[part]} for part in parts
     }
 
     part_totals = {part: 0 for part in parts}
@@ -857,8 +937,7 @@ def save_process_timing_graph(times, plot_path):
         part_color_positions = np.linspace(0.15, 0.85, len(parts))
 
     part_base_colors = {
-        part: viridis(position)
-        for part, position in zip(parts, part_color_positions)
+        part: viridis(position) for part, position in zip(parts, part_color_positions)
     }
 
     subpart_colors = {}
@@ -974,10 +1053,9 @@ def save_process_timing_graph(times, plot_path):
     x_positions = np.arange(len(parts))
 
     for part in parts:
-        values = np.array([
-            part_subpart_totals[part][subpart]
-            for subpart in subparts[part]
-        ])
+        values = np.array(
+            [part_subpart_totals[part][subpart] for subpart in subparts[part]]
+        )
 
         x = x_positions[parts.index(part)]
         current_bottom = 0

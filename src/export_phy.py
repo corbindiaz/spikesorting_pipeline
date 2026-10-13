@@ -1,42 +1,26 @@
 import time
-import os
-import sys
-from IPython.utils.io import capture_output
-import warnings
-import traceback
-import re
-from collections import Counter
-import argparse
 from pathlib import Path
-import zarr
-from tqdm import tqdm
-
-import numpy as np
-import pandas as pd
-
-from spikeinterface.exporters import export_to_phy
 
 import matplotlib
+import pandas as pd
+from spikeinterface.exporters import export_to_phy
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 plt.ioff()
 
-from utils import (import_analyzer, timed)
+from utils import import_analyzer, timed
 
-def export_phy(
-    recording_path_,
-    output_folder,
-    params,
-    time_master,
-    step=3
-):
+
+def export_phy(recording_path_, output_folder, params, time_master, step=3):
     if step == 0:
-        VERBOSE_INVENTORY = params['verbose_inventory']
+        VERBOSE_INVENTORY = params["verbose_inventory"]
     else:
         VERBOSE_INVENTORY = False
 
-    params_phy = params['export']['phy']
-    TEST_RUN = params_phy['test_phy']
+    params_phy = params["export"]["phy"]
+    TEST_RUN = params_phy["test_phy"]
 
     analyzer_folder = output_folder / "analyzer"
 
@@ -53,12 +37,12 @@ def export_phy(
     print("EXPORTING PHY CONTENTS")
     print()
 
-    qm_column_order = params_phy['qm_column_order']
-    tm_column_order = params_phy['tm_column_order']
-    export_quality_metrics = params_phy['export_quality_metrics']
-    export_template_metrics = params_phy['export_template_metrics']
+    qm_column_order = params_phy["qm_column_order"]
+    tm_column_order = params_phy["tm_column_order"]
+    export_quality_metrics = params_phy["export_quality_metrics"]
+    export_template_metrics = params_phy["export_template_metrics"]
 
-    describe = (step == 0)
+    describe = step == 0
 
     for i, analyzer_path in enumerate(group_analyzer_paths):
         # Register timing entries first so partial results survive a crash
@@ -76,8 +60,10 @@ def export_phy(
         try:
             # ---- Import (errors propagate) ----
             with timed(export_times, "Phy Import"):
-                analyzer, rec, raw_file, meta_file = import_analyzer(
-                    analyzer_path, VERBOSE_INVENTORY, describe,
+                analyzer, rec, raw_file, meta_file = import_analyzer(  # noqa: RUF059
+                    analyzer_path,
+                    VERBOSE_INVENTORY,
+                    describe,
                     dtype="float32",
                 )
 
@@ -94,13 +80,13 @@ def export_phy(
                         tm_column_order=tm_column_order,
                         export_quality_metrics=export_quality_metrics,
                         export_template_metrics=export_template_metrics,
-                        compute_pc_features=params_phy['compute_pc_features'],
-                        compute_amplitudes=params_phy['compute_amplitudes'],
-                        copy_binary=params_phy['copy_binary'],
-                        use_relative_path=params_phy['use_relative_path'],
-                        remove_if_exists=params_phy['remove_if_exists'],
-                        progress_bar=params_phy['progress_bar'],
-                        verbose=params_phy['verbose_phy'],
+                        compute_pc_features=params_phy["compute_pc_features"],
+                        compute_amplitudes=params_phy["compute_amplitudes"],
+                        copy_binary=params_phy["copy_binary"],
+                        use_relative_path=params_phy["use_relative_path"],
+                        remove_if_exists=params_phy["remove_if_exists"],
+                        progress_bar=params_phy["progress_bar"],
+                        verbose=params_phy["verbose_phy"],
                         n_jobs=-1,
                         mp_context="spawn",
                     )
@@ -108,7 +94,9 @@ def export_phy(
                 else:
                     time.sleep(3)
 
-            print(f"Phy export time {group_name}: {export_times['Phy Export']:.2f} seconds")
+            print(
+                f"Phy export time {group_name}: {export_times['Phy Export']:.2f} seconds"
+            )
 
             # ---- Fix params.py dat_path (errors propagate) ----
             if not TEST_RUN:
@@ -123,10 +111,11 @@ def export_phy(
             print(f"Total time exporting phy {group_name}: {total:.2f} seconds")
 
     return time_master
-        
-    
+
+
 # Phy cluster_*.tsv write order (on disk): 1) extra_props  2) quality_metrics  3) template_metrics
 # (export_to_phy is called with QM/TM disabled; then QM TSVs, then TM TSVs.)
+
 
 def write_phy_qm_tsvs(
     sorting_analyzer,
@@ -152,7 +141,10 @@ def write_phy_qm_tsvs(
         metric = pd.DataFrame(
             {"cluster_id": cluster_ids, column_name: qm_data[column_name].values}
         )
-        metric.to_csv(output_folder / f"cluster_{column_name}.tsv", sep="\t", index=False)
+        metric.to_csv(
+            output_folder / f"cluster_{column_name}.tsv", sep="\t", index=False
+        )
+
 
 def write_phy_tm_tsvs(
     sorting_analyzer,
@@ -178,7 +170,10 @@ def write_phy_tm_tsvs(
         metric = pd.DataFrame(
             {"cluster_id": cluster_ids, column_name: tm_data[column_name].values}
         )
-        metric.to_csv(output_folder / f"cluster_{column_name}.tsv", sep="\t", index=False)
+        metric.to_csv(
+            output_folder / f"cluster_{column_name}.tsv", sep="\t", index=False
+        )
+
 
 def export_to_phy_props_first_then_metrics(
     sorting_analyzer,
@@ -203,7 +198,6 @@ def export_to_phy_props_first_then_metrics(
       blocks entirely. SpikeInterface's `add_quality_metrics` / `add_template_metrics` in kwargs still
       override if passed (for compatibility).
     """
-    
 
     add_qm = export_kwargs.pop("add_quality_metrics", export_quality_metrics)
     add_tm = export_kwargs.pop("add_template_metrics", export_template_metrics)
@@ -237,7 +231,8 @@ def export_to_phy_props_first_then_metrics(
             unit_ids,
             tm_column_order=tm_column_order,
         )
-        
+
+
 def update_phy_params_dat_path(phy):
     params_path = phy / "params.py"
 

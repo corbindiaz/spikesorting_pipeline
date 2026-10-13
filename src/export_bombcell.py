@@ -1,54 +1,36 @@
 import time
-import os
-import sys
-from IPython.utils.io import capture_output
-import warnings
 import traceback
-import re
-from collections import Counter
-import argparse
 from pathlib import Path
-import zarr
-from tqdm import tqdm
-
-import numpy as np
-import pandas as pd
-from scipy.stats import zscore
 
 import bombcell as bc
-import bombcell.loading_utils as loading_utils
-import bombcell.helper_functions as helper_functions
-
 import matplotlib
+import numpy as np
+import pandas as pd
+from bombcell import helper_functions, loading_utils
+from scipy.stats import zscore
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 plt.ioff()
 
-from utils import (import_analyzer, timed)
+from utils import import_analyzer, timed
 from visualization import (
-    save_bombcell_static_plots,
     save_bombcell_detail_plots,
     save_bombcell_kilosort_label_graph,
+    save_bombcell_static_plots,
 )
 
 
-def export_bombcell(
-    recording_path_,
-    output_folder,
-    params,
-    time_master,
-    step=3.5
-):
-    params_bombcell = params['export']['bombcell']
+def export_bombcell(recording_path_, output_folder, params, time_master, step=3.5):
+    params_bombcell = params["export"]["bombcell"]
 
     analyzer_folder = output_folder / "analyzer"
 
     plots = output_folder / "plots"
     plots.mkdir(parents=True, exist_ok=True)
 
-    group_analyzer_paths = sorted(
-        analyzer_folder.glob("*group*.zarr")
-    )
+    group_analyzer_paths = sorted(analyzer_folder.glob("*group*.zarr"))
 
     export = output_folder / "export"
 
@@ -56,15 +38,15 @@ def export_bombcell(
     print("EXPORTING BOMBCELL CONTENTS")
     print()
 
-    save_plot_details = params_bombcell['save_plot_details']
-    save_unit_plots = params_bombcell['save_unit_plots']
+    save_plot_details = params_bombcell["save_plot_details"]
+    save_unit_plots = params_bombcell["save_unit_plots"]
 
     if step == 0:
-        VERBOSE_INVENTORY = params['verbose_inventory']
+        VERBOSE_INVENTORY = params["verbose_inventory"]
     else:
         VERBOSE_INVENTORY = False
 
-    describe = (step == 0)
+    describe = step == 0
 
     loading_utils.load_ephys_data = load_ephys_data_fixed
     helper_functions.load_ephys_data = load_ephys_data_fixed
@@ -81,7 +63,7 @@ def export_bombcell(
         try:
             # import
             with timed(export_times, "Bombcell Import"):
-                analyzer, rec, raw_file, meta_file = import_analyzer(
+                analyzer, rec, raw_file, meta_file = import_analyzer(  # noqa: RUF059
                     analyzer_path,
                     VERBOSE_INVENTORY,
                     describe,
@@ -113,16 +95,13 @@ def export_bombcell(
             except Exception as e:
                 print()
                 print(
-                    f"{analyzer_path.name}: "
-                    "FIRING RATE STABILITY CALCULATION FAILED"
+                    f"{analyzer_path.name}: " "FIRING RATE STABILITY CALCULATION FAILED"
                 )
                 print(f"Error: {e}")
                 traceback.print_exc()
-                print(
-                    "Continuing with BombCell processing."
-                )
+                print("Continuing with BombCell processing.")
                 print()
-                
+
             # rank calculation
             try:
                 with timed(export_times, "Rank Calculation"):
@@ -134,10 +113,12 @@ def export_bombcell(
                     snr_z = zscore(df["snr"], nan_policy="omit")
                     rank = zscore(n_spikes_z + snr_z, nan_policy="omit")
 
-                    cluster_rank = pd.DataFrame({"cluster_id": df["cluster_id"], "rank": rank})
+                    cluster_rank = pd.DataFrame(
+                        {"cluster_id": df["cluster_id"], "rank": rank}
+                    )
                     cluster_rank.insert(0, "index", range(len(cluster_rank)))
-                    cluster_rank.to_csv(phy / "cluster_rank.tsv", sep="\t",index=False)
-            
+                    cluster_rank.to_csv(phy / "cluster_rank.tsv", sep="\t", index=False)
+
             except Exception as e:
                 print()
                 print(f"{analyzer_path.name}: RANK CALCULATION FAILED")
@@ -153,7 +134,7 @@ def export_bombcell(
                     plots_group,
                     raw_file,
                     meta_file,
-                    plot_details=save_plot_details
+                    plot_details=save_plot_details,
                 )
 
             if result:
@@ -183,9 +164,7 @@ def export_bombcell(
                 # ks/bombcell comparison plot
                 with timed(export_times, "Bombcell Label Comparison"):
                     bklg_file_name = save_bombcell_kilosort_label_graph(
-                        bombcell_labels,
-                        kilosort_labels,
-                        plots_group
+                        bombcell_labels, kilosort_labels, plots_group
                     )
 
                 print(
@@ -204,18 +183,11 @@ def export_bombcell(
 
         finally:
             total = time.perf_counter() - group_start
-            accounted = sum(
-                v for k, v in export_times.items()
-                if k != "Other"
-            )
-            export_times["Bombcell Other"] = max(
-                0.0,
-                total - accounted
-            )
+            accounted = sum(v for k, v in export_times.items() if k != "Other")
+            export_times["Bombcell Other"] = max(0.0, total - accounted)
 
             print(
-                f"Total time exporting Bombcell {group_name}: "
-                f"{total:.2f} seconds"
+                f"Total time exporting Bombcell {group_name}: " f"{total:.2f} seconds"
             )
 
     return time_master
@@ -236,14 +208,10 @@ def calculate_firing_rate_percentages(
     spike_clusters_path = phy_dir / "spike_clusters.npy"
 
     if not spike_times_path.exists():
-        raise FileNotFoundError(
-            f"Missing {spike_times_path.name} in {phy_dir}"
-        )
+        raise FileNotFoundError(f"Missing {spike_times_path.name} in {phy_dir}")
 
     if not spike_clusters_path.exists():
-        raise FileNotFoundError(
-            f"Missing {spike_clusters_path.name} in {phy_dir}"
-        )
+        raise FileNotFoundError(f"Missing {spike_clusters_path.name} in {phy_dir}")
 
     spike_times = np.load(spike_times_path)
     spike_clusters = np.load(spike_clusters_path)
@@ -270,37 +238,24 @@ def calculate_firing_rate_percentages(
     if total_duration <= 0:
         raise ValueError("Spike recording duration is zero.")
 
-    time_bins = np.arange(
-        0,
-        total_duration + bin_size,
-        bin_size
-    )
+    time_bins = np.arange(0, total_duration + bin_size, bin_size)
 
     cluster_ids = np.unique(spike_clusters)
 
     counts_by_cluster = {}
 
     for cluster_id in cluster_ids:
-        cluster_spikes = spike_times_sec[
-            spike_clusters == cluster_id
-        ]
+        cluster_spikes = spike_times_sec[spike_clusters == cluster_id]
 
-        counts, _ = np.histogram(
-            cluster_spikes,
-            bins=time_bins
-        )
+        counts, _ = np.histogram(cluster_spikes, bins=time_bins)
 
         counts_by_cluster[cluster_id] = counts
 
     for window_min in window_minutes:
-        window_size_bins = int(
-            window_min * 60 / bin_size
-        )
+        window_size_bins = int(window_min * 60 / bin_size)
 
         if window_size_bins < 1:
-            raise ValueError(
-                f"Invalid window size for {window_min} minutes."
-            )
+            raise ValueError(f"Invalid window size for {window_min} minutes.")
 
         results = []
 
@@ -310,9 +265,7 @@ def calculate_firing_rate_percentages(
             rolling_rate = (
                 pd.Series(counts)
                 .rolling(
-                    window=window_size_bins,
-                    center=True,
-                    min_periods=window_size_bins
+                    window=window_size_bins, center=True, min_periods=window_size_bins
                 )
                 .mean()
                 / bin_size
@@ -332,88 +285,64 @@ def calculate_firing_rate_percentages(
                 upper_bound = q3 + 1.5 * iqr
 
                 non_outlier_rates = rolling_rate[
-                    (rolling_rate >= lower_bound) &
-                    (rolling_rate <= upper_bound)
+                    (rolling_rate >= lower_bound) & (rolling_rate <= upper_bound)
                 ]
 
                 if len(non_outlier_rates) == 0:
                     min_percentage = np.nan
                 else:
                     min_rate = non_outlier_rates.min()
-                    min_percentage = (
-                        min_rate / mean_rate
-                    ) * 100.0
+                    min_percentage = (min_rate / mean_rate) * 100.0
 
-            results.append({
-                "cluster_id": cluster_id,
-                f"firingRatePercent{window_min}min": min_percentage
-            })
+            results.append(
+                {
+                    "cluster_id": cluster_id,
+                    f"firingRatePercent{window_min}min": min_percentage,
+                }
+            )
 
         results_df = pd.DataFrame(results)
 
-        output_file = (
-            phy_dir /
-            f"cluster_firingRatePercent{window_min}min.tsv"
-        )
+        output_file = phy_dir / f"cluster_firingRatePercent{window_min}min.tsv"
 
-        results_df.to_csv(
-            output_file,
-            sep="\t",
-            index=False
-        )
+        results_df.to_csv(output_file, sep="\t", index=False)
 
-        print(
-            f"Saved firing-rate stability metrics: "
-            f"{output_file.name}"
-        )
+        print(f"Saved firing-rate stability metrics: " f"{output_file.name}")
 
 
 def load_ephys_data_fixed(ephys_path):
     ephys_path = Path(ephys_path)
 
-    spike_templates = np.load(
-        ephys_path / "spike_templates.npy"
-    ).squeeze()
+    spike_templates = np.load(ephys_path / "spike_templates.npy").squeeze()
 
     if (ephys_path / "spike_times_corrected.npy").exists():
         spike_times_samples = np.load(
             ephys_path / "spike_times_corrected.npy"
         ).squeeze()
     else:
-        spike_times_samples = np.load(
-            ephys_path / "spike_times.npy"
-        ).squeeze()
+        spike_times_samples = np.load(ephys_path / "spike_times.npy").squeeze()
 
-    template_amplitudes = np.load(
-        ephys_path / "amplitudes.npy"
-    ).squeeze().astype(np.float64)
-
-    templates_waveforms_whitened = np.load(
-        ephys_path / "templates.npy"
+    template_amplitudes = (
+        np.load(ephys_path / "amplitudes.npy").squeeze().astype(np.float64)
     )
 
-    template_ind = np.load(
-        ephys_path / "template_ind.npy"
-    )
+    templates_waveforms_whitened = np.load(ephys_path / "templates.npy")
 
-    channel_positions = np.load(
-        ephys_path / "channel_positions.npy"
-    ).squeeze()
+    template_ind = np.load(ephys_path / "template_ind.npy")
+
+    channel_positions = np.load(ephys_path / "channel_positions.npy").squeeze()
 
     n_templates = templates_waveforms_whitened.shape[0]
     n_samples = templates_waveforms_whitened.shape[1]
     n_channels = len(channel_positions)
 
     if (ephys_path / "whitening_mat_inv.npy").exists():
-        winv = np.load(
-            ephys_path / "whitening_mat_inv.npy"
-        )
+        winv = np.load(ephys_path / "whitening_mat_inv.npy")
     else:
         winv = np.eye(n_channels)
 
     templates_waveforms = np.zeros(
-        (n_templates, n_samples, n_channels),
-        dtype=templates_waveforms_whitened.dtype
+        (n_templates, n_samples, n_channels), dtype=templates_waveforms_whitened.dtype
     )
 
     for t in range(n_templates):
@@ -424,9 +353,7 @@ def load_ephys_data_fixed(ephys_path):
         template = templates_waveforms_whitened[t][:, valid]
 
         if winv.shape == (n_channels, n_channels):
-            winv_local = winv[
-                np.ix_(channels, channels)
-            ]
+            winv_local = winv[np.ix_(channels, channels)]
             template_unwhitened = template @ winv_local
         else:
             template_unwhitened = template
@@ -434,23 +361,16 @@ def load_ephys_data_fixed(ephys_path):
         templates_waveforms[t][:, channels] = template_unwhitened
 
     if (ephys_path / "pc_features.npy").exists():
-        pc_features = np.load(
-            ephys_path / "pc_features.npy"
-        ).squeeze()
+        pc_features = np.load(ephys_path / "pc_features.npy").squeeze()
 
-        pc_features_idx = np.load(
-            ephys_path / "pc_feature_ind.npy"
-        ).squeeze()
+        pc_features_idx = np.load(ephys_path / "pc_feature_ind.npy").squeeze()
     else:
         pc_features = np.nan
         pc_features_idx = np.nan
 
     spike_templates, templates_waveforms, pc_features_idx = (
         loading_utils.handle_manual_curation(
-            ephys_path,
-            spike_templates,
-            templates_waveforms,
-            pc_features_idx
+            ephys_path, spike_templates, templates_waveforms, pc_features_idx
         )
     )
 
@@ -461,7 +381,7 @@ def load_ephys_data_fixed(ephys_path):
         template_amplitudes,
         pc_features,
         pc_features_idx,
-        channel_positions
+        channel_positions,
     )
 
 
@@ -477,11 +397,7 @@ def validate_phy_directory(phy_dir):
         "channel_positions.npy",
     ]
 
-    missing = [
-        name
-        for name in required
-        if not (phy_dir / name).exists()
-    ]
+    missing = [name for name in required if not (phy_dir / name).exists()]
 
     if missing:
         print("Missing required files:")
@@ -507,10 +423,7 @@ def validate_phy_directory(phy_dir):
         wm = np.load(whitening_mat_path)
 
     else:
-        print(
-            "Whitening matrix not found. "
-            "Adding identity whitening matrix."
-        )
+        print("Whitening matrix not found. " "Adding identity whitening matrix.")
 
         wm = np.eye(num_chans)
         np.save(whitening_mat_path, wm)
@@ -521,25 +434,19 @@ def validate_phy_directory(phy_dir):
             f"expected {(num_chans, num_chans)}"
         )
 
-    whitening_mat_inv_path = (
-        phy_dir / "whitening_mat_inv.npy"
-    )
+    whitening_mat_inv_path = phy_dir / "whitening_mat_inv.npy"
 
     if whitening_mat_inv_path.exists():
         wmi = np.load(whitening_mat_inv_path)
 
     else:
         print(
-            "Inverse whitening matrix not found. "
-            "Computing inverse whitening matrix."
+            "Inverse whitening matrix not found. " "Computing inverse whitening matrix."
         )
 
         wmi = np.linalg.inv(wm)
 
-        np.save(
-            whitening_mat_inv_path,
-            wmi
-        )
+        np.save(whitening_mat_inv_path, wmi)
 
     if wmi.shape != (num_chans, num_chans):
         raise ValueError(
@@ -567,42 +474,28 @@ def validate_template_dimensions(phy_dir):
     )
 
     if templates.ndim != 3:
-        raise ValueError(
-            f"templates.npy has unexpected shape {templates.shape}"
-        )
+        raise ValueError(f"templates.npy has unexpected shape {templates.shape}")
 
     if template_ind.ndim != 2:
         raise ValueError(
-            f"template_ind.npy has unexpected shape "
-            f"{template_ind.shape}"
+            f"template_ind.npy has unexpected shape " f"{template_ind.shape}"
         )
 
     if templates.shape[0] != template_ind.shape[0]:
-        raise ValueError(
-            "Number of templates does not match template_ind"
-        )
+        raise ValueError("Number of templates does not match template_ind")
 
     if templates.shape[2] != template_ind.shape[1]:
-        raise ValueError(
-            "Template channel dimension does not match template_ind"
-        )
+        raise ValueError("Template channel dimension does not match template_ind")
 
     if winv.ndim != 2 or winv.shape[0] != winv.shape[1]:
+        raise ValueError(f"whitening_mat_inv.npy has unexpected shape " f"{winv.shape}")
+
+    valid_channels = template_ind[template_ind >= 0]
+
+    if len(valid_channels) > 0 and valid_channels.max() >= winv.shape[0]:
         raise ValueError(
-            f"whitening_mat_inv.npy has unexpected shape "
-            f"{winv.shape}"
+            "template_ind.npy contains channels outside " "whitening_mat_inv.npy"
         )
-
-    valid_channels = template_ind[
-        template_ind >= 0
-    ]
-
-    if len(valid_channels) > 0:
-        if valid_channels.max() >= winv.shape[0]:
-            raise ValueError(
-                "template_ind.npy contains channels outside "
-                "whitening_mat_inv.npy"
-            )
 
     return (
         templates.shape,
@@ -632,21 +525,10 @@ def check_spike_count_discrepancy(phy):
         difference = max_spikes - min_spikes
 
         print()
-        print(
-            "WARNING: Spike count discrepancy detected in Phy folder"
-        )
-        print(
-            f"  spike_times.npy:    "
-            f"{spike_counts['spike_times.npy']}"
-        )
-        print(
-            f"  spike_clusters.npy: "
-            f"{spike_counts['spike_clusters.npy']}"
-        )
-        print(
-            f"  amplitudes.npy:     "
-            f"{spike_counts['amplitudes.npy']}"
-        )
+        print("WARNING: Spike count discrepancy detected in Phy folder")
+        print(f"  spike_times.npy:    " f"{spike_counts['spike_times.npy']}")
+        print(f"  spike_clusters.npy: " f"{spike_counts['spike_clusters.npy']}")
+        print(f"  amplitudes.npy:     " f"{spike_counts['amplitudes.npy']}")
         print(f"  Difference:         {difference} spikes")
         print()
         print(
@@ -662,46 +544,22 @@ def check_spike_count_discrepancy(phy):
         target_spikes = min_spikes
 
         if spike_times.shape[0] > target_spikes:
-            np.save(
-                spike_times_path,
-                spike_times[:target_spikes]
-            )
+            np.save(spike_times_path, spike_times[:target_spikes])
 
         if spike_clusters.shape[0] > target_spikes:
-            np.save(
-                spike_clusters_path,
-                spike_clusters[:target_spikes]
-            )
+            np.save(spike_clusters_path, spike_clusters[:target_spikes])
 
         if amplitudes.shape[0] > target_spikes:
-            np.save(
-                amplitudes_path,
-                amplitudes[:target_spikes]
-            )
+            np.save(amplitudes_path, amplitudes[:target_spikes])
 
         print("Spike counts after trimming:")
-        print(
-            "  spike_times:",
-            np.load(spike_times_path).shape
-        )
-        print(
-            "  spike_clusters:",
-            np.load(spike_clusters_path).shape
-        )
-        print(
-            "  amplitudes:",
-            np.load(amplitudes_path).shape
-        )
+        print("  spike_times:", np.load(spike_times_path).shape)
+        print("  spike_clusters:", np.load(spike_clusters_path).shape)
+        print("  amplitudes:", np.load(amplitudes_path).shape)
         print()
 
 
-def process_bombcell(
-    group_path,
-    plot_dir,
-    raw_file,
-    meta_file,
-    plot_details
-):
+def process_bombcell(group_path, plot_dir, raw_file, meta_file, plot_details):
     GAIN_TO_UV = 1
     group_path = Path(group_path)
 
@@ -747,11 +605,7 @@ def process_bombcell(
         param = bc.get_default_parameters(
             kilosort_path=str(phy_dir),
             raw_file=str(raw_file),
-            meta_file=(
-                str(meta_file)
-                if meta_file is not None
-                else None
-            ),
+            meta_file=(str(meta_file) if meta_file is not None else None),
             kilosort_version=4,
         )
 
@@ -759,8 +613,7 @@ def process_bombcell(
             param["gain_to_uV"] = GAIN_TO_UV
 
             print(
-                "No .meta file. Gain set manually. "
-                "Relevant param keys:",
+                "No .meta file. Gain set manually. " "Relevant param keys:",
                 [
                     k
                     for k in param
@@ -769,7 +622,7 @@ def process_bombcell(
                         or "sync" in k.lower()
                         or "gain" in k.lower()
                     )
-                ]
+                ],
             )
 
         param["plotGlobal"] = True
@@ -780,47 +633,28 @@ def process_bombcell(
         print("Running BombCell...")
 
         return run_bombcell_extract_graphs(
-            group_path,
-            phy_dir,
-            plot_dir,
-            save_path,
-            plot_details,
-            param
+            group_path, phy_dir, plot_dir, save_path, plot_details, param
         )
 
     except Exception as e:
-        print(
-            f"ERROR during BombCell processing "
-            f"{group_path.name}: {e}"
-        )
+        print(f"ERROR during BombCell processing " f"{group_path.name}: {e}")
         traceback.print_exc()
         return False
 
 
 def run_bombcell_extract_graphs(
-    group_path,
-    phy_dir,
-    plot_dir,
-    save_path,
-    plot_details,
-    param
+    group_path, phy_dir, plot_dir, save_path, plot_details, param
 ):
     original_show = None
 
     if plot_details:
         detail_plot_dir = plot_dir / "plotDetails"
 
-        original_show = save_bombcell_detail_plots(
-            detail_plot_dir
-        )
+        original_show = save_bombcell_detail_plots(detail_plot_dir)
 
     try:
-        quality_metrics, param, unit_type, unit_type_string = (
-            bc.run_bombcell(
-                ks_dir=str(phy_dir),
-                save_path=str(save_path),
-                param=param
-            )
+        quality_metrics, param, unit_type, unit_type_string = bc.run_bombcell(
+            ks_dir=str(phy_dir), save_path=str(save_path), param=param
         )
 
     except Exception as e:

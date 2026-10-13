@@ -1,26 +1,19 @@
-import time
 import shutil
+import time
+import warnings
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
-import warnings
-
-from utils import timed, recording_summary
-
-import torch
-from kilosort.run_kilosort import close_logger
 import spikeinterface.full as si
 import spikeinterface.sorters as ss
+import torch
+from kilosort.run_kilosort import close_logger
 
-import matplotlib.pyplot as plt
+from utils import timed
 
-def sorter_kilosort(
-    recording_path_,
-    output_folder,
-    params,
-    time_master,
-    step=1
-):
+
+def sorter_kilosort(recording_path_, output_folder, params, time_master, step=1):
     preprocessed_folder = output_folder / "preprocessed"
     kilosort_folder = output_folder / "kilosort"
     analyzer_folder = output_folder / "analyzer"
@@ -33,13 +26,14 @@ def sorter_kilosort(
     motion_plots_folder.mkdir(parents=True, exist_ok=True)
 
     kilosort_params = params["kilosort"]
-    
-    kilosort_params['n_jobs'] = params['job_kwargs']['n_jobs']
-    kilosort_params['progress_bar'] = params['job_kwargs']['progress_bar']
-    kilosort_params['chunk_duration'] = params['job_kwargs']['chunk_duration']
+
+    kilosort_params["n_jobs"] = params["job_kwargs"]["n_jobs"]
+    kilosort_params["progress_bar"] = params["job_kwargs"]["progress_bar"]
+    kilosort_params["chunk_duration"] = params["job_kwargs"]["chunk_duration"]
 
     preprocessed_recording_paths = sorted(
-        p for p in preprocessed_folder.iterdir()
+        p
+        for p in preprocessed_folder.iterdir()
         if p.is_dir() and "_group" in p.name and p.name != "motion"
     )
 
@@ -74,7 +68,7 @@ def sorter_kilosort(
                 print("Running Kilosort4...")
                 print("CUDA available:", torch.cuda.is_available())
                 print("CUDA version:", torch.version.cuda)
-                
+
                 if torch.cuda.is_available():
                     print("GPU:", torch.cuda.get_device_name(0))
                 sorting = ss.run_sorter(
@@ -87,7 +81,7 @@ def sorter_kilosort(
                     **kilosort_params,
                 )
 
-                n_original_units = int(len(sorting.unit_ids))
+                n_original_units = len(sorting.unit_ids)
                 print(f"Kilosort4 found {n_original_units} units.")
 
                 sorting = _fix_object_properties(sorting)
@@ -97,8 +91,7 @@ def sorter_kilosort(
             if kilosort_params["do_correction"]:
                 with timed(kilosort_time, "Motion"):
                     motion = read_kilosort4_motion(
-                        sorter_output_folder,
-                        recording=recording
+                        sorter_output_folder, recording=recording
                     )
 
             # Close Kilosort's log file before deleting sorter output
@@ -114,13 +107,13 @@ def sorter_kilosort(
             # Analyzer
             with timed(kilosort_time, "Analyzer"):
                 print(f"Creating SortingAnalyzer: {analyzer_group_folder}")
-                analyzer = si.create_sorting_analyzer(
+                analyzer = si.create_sorting_analyzer(  # noqa: F841
                     sorting=sorting,
                     recording=recording,
                     format="zarr",
                     folder=analyzer_group_folder,
                     overwrite=True,
-                    **params['job_kwargs']
+                    **params["job_kwargs"],
                 )
 
             # Save motion + plot
@@ -144,7 +137,7 @@ def sorter_kilosort(
                             motion_plots_folder / f"{group_name}_kilosort_motion.png"
                         )
                         fig = plt.figure(figsize=(14, 8))
-                        si.plot_motion(motion, mode = "map", figure=fig)
+                        si.plot_motion(motion, mode="map", figure=fig)
                         fig.savefig(motion_plot_path, dpi=150, bbox_inches="tight")
                         plt.close(fig)
                         print(f"Motion plot saved to: {motion_plot_path}")
@@ -161,8 +154,7 @@ def sorter_kilosort(
 
 
 def read_kilosort4_motion(
-    sorter_output_folder: str | Path,
-    recording: si.BaseRecording | None = None
+    sorter_output_folder: str | Path, recording: si.BaseRecording | None = None
 ) -> si.Motion:
     """Read motion information from a Kilosort4 output folder."""
 
@@ -170,22 +162,15 @@ def read_kilosort4_motion(
     ops_file = sorter_output_folder / "ops.npy"
 
     if not ops_file.is_file():
-        raise FileNotFoundError(
-            "'ops.npy' file not found!"
-        )
+        raise FileNotFoundError("'ops.npy' file not found!")
 
-    ops = np.load(
-        ops_file,
-        allow_pickle=True
-    ).item()
+    ops = np.load(ops_file, allow_pickle=True).item()
 
     yblk = ops.get("yblk")
     dshift = ops.get("dshift")
 
     if yblk is None or dshift is None:
-        warnings.warn(
-            "'yblk' and 'dshift' fields not found in ops file!"
-        )
+        warnings.warn("'yblk' and 'dshift' fields not found in ops file!")
         return None
 
     displacement = dshift
@@ -200,23 +185,19 @@ def read_kilosort4_motion(
         t_end = recording.get_end_time()
 
         temporal_bins_s = np.linspace(
-            t_start + t_bin / 2,
-            t_end - t_bin / 2,
-            displacement.shape[0]
+            t_start + t_bin / 2, t_end - t_bin / 2, displacement.shape[0]
         )
     else:
-        temporal_bins_s = (
-            np.arange(displacement.shape[0]) * t_bin
-            + t_bin / 2
-        )
+        temporal_bins_s = np.arange(displacement.shape[0]) * t_bin + t_bin / 2
 
     motion = si.Motion(
         displacement=displacement,
         temporal_bins_s=temporal_bins_s,
-        spatial_bins_um=spatial_bins_um
+        spatial_bins_um=spatial_bins_um,
     )
 
     return motion
+
 
 def _fix_object_properties(sorting):
     """Cast object-dtype unit properties (e.g. KSLabel) to fixed-width
