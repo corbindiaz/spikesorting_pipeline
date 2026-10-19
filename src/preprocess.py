@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 import time
@@ -34,31 +35,47 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         print("WARNING:")
         print("DEBUG MODE initiated. Pipeline will terminate before motion detection.")
 
-    recording = si.read_spikeglx(recording_path_, stream_id="imec0.ap")
-    print(recording)
+    use_sync = params_pre.get("sync_channel", False)
 
+    # Load everything (385 channels if sync is requested)
+    full = si.read_spikeglx(
+        recording_path_, stream_id=STREAM_ID, load_sync_channel=use_sync
+    )
+
+    print("Shifting time to ensure 0sec start...")
+    print(f"Old start time: {full.get_times()[0]} seconds")
+    full.shift_times(-full.get_times()[0])
+    print(f"New start time: {full.get_times()[0]} seconds")
+
+    # Trim the ENTIRE recording (neural + sync together)
+    params_trim = params_pre["trimming"]
+    n_samples_original = full.get_num_samples()
+    start_frame, end_frame = resolve_trim_frames(full, params_trim)
+    if params_trim["trim_recording"]:
+        fs = full.get_sampling_frequency()
+        print(
+            f"Trimming recording to frames {start_frame}..{end_frame} "
+            f"({start_frame / fs:.3f} s to {end_frame / fs:.3f} s)..."
+        )
+        full = full.frame_slice(start_frame, end_frame)
+
+    # Only now separate the sync channel
+    if use_sync:
+        recording, sync = split_off_sync(full, recording_path_)
+        save_sync_channel(
+            sync, output_folder, start_frame, end_frame, n_samples_original
+        )
+    else:
+        recording = full
+        if (output_folder / "sync").exists():
+            print(
+                "WARNING: an old 'sync' folder exists from a previous run and does NOT "
+                "match this preprocessed recording."
+            )
+
+    print(recording)
     save_probe_figure(recording, plots_pre, "probe_map_raw")
     print(f"Probe Map saved to: {plots_pre / 'probe_map_raw.png'}")
-
-    # Time Shift
-    print("Shifting time to ensure 0sec start...")
-    print(f"Old start time: {recording.get_times()[0]} seconds")
-    recording.shift_times(-recording.get_times()[0])
-    print(f"New start time: {recording.get_times()[0]} seconds")
-
-    # Trimming
-    params_trim = params_pre["trimming"]
-    if params_trim["trim_recording"]:
-        if params_trim["start"] is None:
-            start = recording.get_times()[0]
-        else:
-            start = params_trim["start"]
-        if params_trim["end"] is None:
-            end = recording.get_times()[-1]
-        else:
-            end = params_trim["end"]
-        print(f"Trimming recording to be from {start} sec to {end} sec...")
-        recording = recording.time_slice(start_time=start, end_time=end)
 
     if params_pre["split_by_shank"]:
         groups = recording.split_by("group")
@@ -429,12 +446,106 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                 group.save(
                     folder=preprocessed_path, overwrite=True, **params["job_kwargs"]
                 )
+                if use_sync:
+                    verify_sync_alignment(output_folder, preprocessed_path)
 
         finally:
             total = time.perf_counter() - group_start  # noqa: F841
-            accounted = sum(v for k, v in preprocessing_time.items() if k != "Other")  # noqa: F841
+            accounted = sum(  # noqa: F841
+                v for k, v in preprocessing_time.items() if k != "Other"
+            )
 
     return time_master
+
+
+STREAM_ID = "imec0.ap"
+
+
+def resolve_trim_frames(recording, params_trim):
+    """Return (start_frame, end_frame) as integers; end is exclusive.
+    Expects a recording whose times were already shifted to start at 0."""
+    n = recording.get_num_samples()
+    fs = recording.get_sampling_frequency()
+    if not params_trim["trim_recording"]:
+        return 0, n
+    start = 0 if params_trim["start"] is None else round(params_trim["start"] * fs)
+    end = n if params_trim["end"] is None else round(params_trim["end"] * fs)
+    start, end = max(start, 0), min(end, n)
+    if end <= start:
+        raise ValueError(f"Invalid trim: frames {start}..{end} (recording has {n})")
+    return start, end
+
+
+def split_off_sync(full, recording_path_, stream_id=STREAM_ID):
+    """Split an (already trimmed) recording loaded with the sync channel into
+    (neural_recording, sync_recording)."""
+    sync_id = full.channel_ids[-1]
+    if "SY" not in str(sync_id).upper():
+        raise RuntimeError(
+            f"Last channel '{sync_id}' does not look like a sync channel."
+        )
+
+    neural = full.select_channels(full.channel_ids[:-1])
+    sync = full.select_channels([sync_id])
+
+    # The probe may not be attached when the sync channel is loaded. Re-attach it
+    # from a lazy 384-channel read (same channel ids, no data is read).
+    if not neural.has_probe():
+        ref = si.read_spikeglx(
+            recording_path_, stream_id=stream_id, load_sync_channel=False
+        )
+        if list(ref.channel_ids) != list(neural.channel_ids):
+            raise RuntimeError(
+                "Neural channel ids differ between sync and non-sync reads."
+            )
+        neural = neural.set_probe(ref.get_probe())
+        print("Probe re-attached to neural recording.")
+    return neural, sync
+
+
+def save_sync_channel(
+    sync, output_folder, start_frame, end_frame, n_samples_original, stream_id=STREAM_ID
+):
+    if sync.get_num_segments() != 1:
+        raise RuntimeError("Sync saving assumes a single segment.")
+    traces = sync.get_traces()[:, 0]  # raw int16 digital word, unscaled
+
+    sync_dir = output_folder / "sync"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    np.save(sync_dir / f"{stream_id}_sync.npy", traces)
+    (sync_dir / f"{stream_id}_sync.json").write_text(
+        json.dumps(
+            {
+                "fs": float(sync.get_sampling_frequency()),
+                "n_samples": int(traces.shape[0]),
+                "start_frame_in_original": int(
+                    start_frame
+                ),  # original_sample = start_frame + i
+                "end_frame_in_original": int(end_frame),  # exclusive
+                "n_samples_original": int(n_samples_original),
+                "channel_id": str(sync.channel_ids[0]),
+            },
+            indent=2,
+        )
+    )
+    print(
+        f"Sync channel saved to: {sync_dir} ({traces.shape[0]} samples, "
+        f"original frames {start_frame}..{end_frame})"
+    )
+
+
+def verify_sync_alignment(output_folder, preprocessed_path, stream_id=STREAM_ID):
+    meta = json.loads((output_folder / "sync" / f"{stream_id}_sync.json").read_text())
+    saved = si.load(preprocessed_path)
+    if saved.get_num_samples() != meta["n_samples"]:
+        raise RuntimeError(
+            f"Sync misaligned with {preprocessed_path.name}: preprocessed has "
+            f"{saved.get_num_samples()} samples, sync has {meta['n_samples']}."
+        )
+    print(
+        f"Sync alignment verified for {preprocessed_path.name}: "
+        f"{meta['n_samples']} samples."
+    )
 
 
 COLORS = {"good": "tab:green", "dead": "red", "noise": "orange", "out": "blue"}
