@@ -11,6 +11,7 @@
     },
     "verbose_inventory": false,
     "preprocess": {
+        "sync_channel": true,
         "split_by_shank": false,
 
         "trimming": {

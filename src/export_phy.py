@@ -65,6 +65,7 @@ def export_phy(recording_path_, output_folder, params, time_master, step=3):
                     VERBOSE_INVENTORY,
                     describe,
                     dtype="float32",
+                    sync_channel=params["preprocess"].get("sync_channel", False)
                 )
 
             extra_props = analyzer.sorting.get_property_keys()

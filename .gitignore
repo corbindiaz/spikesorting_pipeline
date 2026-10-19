@@ -1,1 +1,3 @@
 params.json
+_pycache_/
+*.py[cod]

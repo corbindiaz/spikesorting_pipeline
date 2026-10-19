@@ -125,10 +125,22 @@ def _locate_raw_file(rec, data_path):
         )
     return candidates[0]
 
+def _patch_recording_dict(rec_dict, dtype=None, strip_sync_flag=True):
+    changed = False
+    for d in _walk(rec_dict):
+        if strip_sync_flag and "load_sync_channel" in d:
+            del d["load_sync_channel"]
+            changed = True
+        if dtype and "BinaryRecordingExtractor" in str(d.get("class", "")):
+            kwargs = d.setdefault("kwargs", {})
+            if kwargs.get("dtype") != dtype:
+                kwargs["dtype"] = dtype
+                changed = True
+    return changed
 
-def import_analyzer(
-    analyzer_path, VERBOSE_INVENTORY=False, describe=True, *, data_path=None, dtype=None
-):
+
+def import_analyzer(analyzer_path, VERBOSE_INVENTORY=False, describe=True, *,
+                    data_path=None, dtype=None, sync_channel=False):
     """
     Load a SpikeInterface analyzer from a zarr folder.
 
@@ -143,8 +155,8 @@ def import_analyzer(
     rec_dict = root["recording"][0]
 
     try:
-        if _patch_recording_dict(rec_dict, dtype):
-            root["recording"][0] = rec_dict  # only write back when something changed
+        if _patch_recording_dict(rec_dict, dtype, strip_sync_flag=not sync_channel):
+            root["recording"][0] = rec_dict
     except Exception as e:
         print(f"Could not patch recording metadata: {e}")
 

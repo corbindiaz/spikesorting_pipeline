@@ -88,6 +88,7 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
                     VERBOSE_INVENTORY,
                     describe,
                     dtype="float32",
+                    sync_channel=params["preprocess"].get("sync_channel", False)
                 )
 
             # Stage 1: remove empty, excess-spike and too-few-spike units
