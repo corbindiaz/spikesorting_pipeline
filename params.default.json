@@ -7,7 +7,8 @@
     },
     "diagnostic": {
         "print_time_computation_graph": true,
-        "print_terminal_pdf": true
+        "save_terminal_pdf": false,
+        "save_terminal_txt": true
     },
     "verbose_inventory": false,
     "preprocess": {
@@ -58,7 +59,10 @@
         }
     },
     "kilosort": {
-        "do_correction": true
+        "do_correction": true,
+        "dmin": null,
+        "dminx": 32,
+        "nearest_chans": 10
     },
     "postprocess": null,
     "export": {

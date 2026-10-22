@@ -19,6 +19,8 @@ def export_phy(recording_path_, output_folder, params, time_master, step=3):
     else:
         VERBOSE_INVENTORY = False
 
+    job_kwargs = params["job_kwargs"]
+
     params_phy = params["export"]["phy"]
     TEST_RUN = params_phy["test_phy"]
 
@@ -88,7 +90,7 @@ def export_phy(recording_path_, output_folder, params, time_master, step=3):
                         remove_if_exists=params_phy["remove_if_exists"],
                         progress_bar=params_phy["progress_bar"],
                         verbose=params_phy["verbose_phy"],
-                        n_jobs=-1,
+                        n_jobs=job_kwargs["n_jobs"],
                         mp_context="spawn",
                     )
                     print("Exported Phy folder:", phy)

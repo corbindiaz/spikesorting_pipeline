@@ -239,10 +239,15 @@ def main():
 
         # Save the PDF last so it includes everything above.
         try:
-            if params["diagnostic"]["print_terminal_pdf"]:
+            if params["diagnostic"]["save_terminal_pdf"]:
                 save_terminal_pdf(
                     log_buffer.getvalue(),
                     args.output / f"terminal_output_{timestamp}{suffix}.pdf",
+                )
+            if params["diagnostic"]["save_terminal_txt"]:
+                save_terminal_txt(
+                    log_buffer.getvalue(),
+                    args.output / f"terminal_output_{timestamp}{suffix}.txt",
                 )
         except Exception as pdf_err:
             print(f"Could not save terminal PDF: {pdf_err}", file=orig_stderr)
@@ -361,6 +366,11 @@ def save_terminal_pdf(text, pdf_path, wrap=110, lines_per_page=80):
                 0.05, 0.97, chunk, va="top", ha="left", family="monospace", fontsize=7
             )
             pdf.savefig(fig)
+
+def save_terminal_txt(text, txt_path):
+    lines = _clean_log(text)  # strips ANSI codes and tqdm \r redraws
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":

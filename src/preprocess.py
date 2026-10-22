@@ -37,41 +37,45 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
     use_sync = params_pre.get("sync_channel", False)
 
-    # Load everything (385 channels if sync is requested)
-    full = si.read_spikeglx(
-        recording_path_, stream_id=STREAM_ID, load_sync_channel=use_sync
-    )
+    recording = si.read_spikeglx(recording_path_, stream_id=STREAM_ID)
+    sync = load_sync_recording(recording_path_) if use_sync else None
+
+    #print(recording.channel_ids)
+
+    if use_sync:
+        if sync.get_num_samples() != recording.get_num_samples():
+            raise RuntimeError(
+                f"Sync ({sync.get_num_samples()}) and neural "
+                f"({recording.get_num_samples()}) have different lengths."
+            )
+        if sync.get_sampling_frequency() != recording.get_sampling_frequency():
+            raise RuntimeError("Sync and neural sampling frequencies differ.")
 
     print("Shifting time to ensure 0sec start...")
-    print(f"Old start time: {full.get_times()[0]} seconds")
-    full.shift_times(-full.get_times()[0])
-    print(f"New start time: {full.get_times()[0]} seconds")
-
-    # Trim the ENTIRE recording (neural + sync together)
-    params_trim = params_pre["trimming"]
-    n_samples_original = full.get_num_samples()
-    start_frame, end_frame = resolve_trim_frames(full, params_trim)
-    if params_trim["trim_recording"]:
-        fs = full.get_sampling_frequency()
-        print(
-            f"Trimming recording to frames {start_frame}..{end_frame} "
-            f"({start_frame / fs:.3f} s to {end_frame / fs:.3f} s)..."
-        )
-        full = full.frame_slice(start_frame, end_frame)
-
-    # Only now separate the sync channel
+    print(f"Old start time: {recording.get_times()[0]} seconds")
+    recording.shift_times(-recording.get_times()[0])
     if use_sync:
-        recording, sync = split_off_sync(full, recording_path_)
-        save_sync_channel(
-            sync, output_folder, start_frame, end_frame, n_samples_original
-        )
-    else:
-        recording = full
-        if (output_folder / "sync").exists():
-            print(
-                "WARNING: an old 'sync' folder exists from a previous run and does NOT "
-                "match this preprocessed recording."
-            )
+        sync.shift_times(-sync.get_times()[0])
+    print(f"New start time: {recording.get_times()[0]} seconds")
+
+    # Integer frames computed once, applied identically to both
+    params_trim = params_pre["trimming"]
+    n_samples_original = recording.get_num_samples()
+    start_frame, end_frame = resolve_trim_frames(recording, params_trim)
+    if params_trim["trim_recording"]:
+        fs = recording.get_sampling_frequency()
+        print(f"Trimming recording to frames {start_frame}..{end_frame} "
+            f"({start_frame / fs:.3f} s to {end_frame / fs:.3f} s)...")
+        recording = recording.frame_slice(start_frame, end_frame)
+        if use_sync:
+            sync = sync.frame_slice(start_frame, end_frame)
+
+    if use_sync:
+        assert sync.get_num_samples() == recording.get_num_samples()
+        save_sync_channel(sync, output_folder, start_frame, end_frame, n_samples_original)
+    elif (output_folder / "sync").exists():
+        print("WARNING: an old 'sync' folder exists from a previous run and does NOT "
+            "match this preprocessed recording.")
 
     print(recording)
     save_probe_figure(recording, plots_pre, "probe_map_raw")
@@ -147,6 +151,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         print(
                             f"Skipping bad channel detection. Removing channels {remove_cfg} instead."
                         )
+                        remove_cfg = ["imec0.ap#AP" + str(ch) for ch in remove_cfg]
                         bad_channel_ids = [
                             c for c in remove_cfg if c in temp_group.channel_ids
                         ]
@@ -231,7 +236,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             frac = (
                                 len(channels_to_remove) / temp_group.get_num_channels()
                             )
-                            if frac > params_bad["bad_channel_limit"]:
+                            if not is_custom_list & (frac > params_bad["bad_channel_limit"]):
                                 raise RuntimeError(
                                     f"Too many bad channels targeted for removal: "
                                     f"{len(channels_to_remove)}/{temp_group.get_num_channels()} "
@@ -476,31 +481,18 @@ def resolve_trim_frames(recording, params_trim):
     return start, end
 
 
-def split_off_sync(full, recording_path_, stream_id=STREAM_ID):
-    """Split an (already trimmed) recording loaded with the sync channel into
-    (neural_recording, sync_recording)."""
-    sync_id = full.channel_ids[-1]
-    if "SY" not in str(sync_id).upper():
+def load_sync_recording(recording_path_, stream_id=STREAM_ID):
+    _, stream_ids = si.get_neo_streams("spikeglx", recording_path_)
+    candidates = [s for s in stream_ids
+                  if s.startswith(stream_id.split(".")[0]) and "SYNC" in s.upper()
+                  and ".ap" in s]
+    if len(candidates) != 1:
         raise RuntimeError(
-            f"Last channel '{sync_id}' does not look like a sync channel."
+            f"Expected exactly one AP sync stream, found {candidates}. "
+            f"All streams: {list(stream_ids)}"
         )
-
-    neural = full.select_channels(full.channel_ids[:-1])
-    sync = full.select_channels([sync_id])
-
-    # The probe may not be attached when the sync channel is loaded. Re-attach it
-    # from a lazy 384-channel read (same channel ids, no data is read).
-    if not neural.has_probe():
-        ref = si.read_spikeglx(
-            recording_path_, stream_id=stream_id, load_sync_channel=False
-        )
-        if list(ref.channel_ids) != list(neural.channel_ids):
-            raise RuntimeError(
-                "Neural channel ids differ between sync and non-sync reads."
-            )
-        neural = neural.set_probe(ref.get_probe())
-        print("Probe re-attached to neural recording.")
-    return neural, sync
+    print(f"Loading sync stream: {candidates[0]}")
+    return si.read_spikeglx(recording_path_, stream_id=candidates[0])
 
 
 def save_sync_channel(
