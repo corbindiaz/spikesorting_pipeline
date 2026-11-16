@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import spikeinterface.curation as sc
 import spikeinterface.full as si
-
+from spikeinterface.curation import remove_duplicated_spikes
 from utils import import_analyzer, timed
 from visualization import (
     save_probe_figure,
@@ -78,6 +78,7 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
         plots_group.mkdir(parents=True, exist_ok=True)
 
         removed_log = {}
+        n_dup_removed = 0
 
         try:
             # Import
@@ -91,7 +92,7 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
                     sync_channel=params["preprocess"].get("sync_channel", False)
                 )
 
-            # Stage 1: remove empty, excess-spike and too-few-spike units
+            # Stage 1: remove empty, excess-spike, duplicated-spike and too-few-spike units
             with timed(postprocessing_time, "Unit Cleanup"):
                 sorting = analyzer.sorting
                 n_original_units = len(sorting.unit_ids)
@@ -99,7 +100,28 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
                 sorting = sorting.remove_empty_units()
                 sorting = sc.remove_excess_spikes(sorting=sorting, recording=rec)
 
-                counts = sorting.count_num_spikes_per_unit()
+                # Remove duplicated spikes (closer than the censored period)
+                counts_before = sorting.count_num_spikes_per_unit()
+                sorting = remove_duplicated_spikes(
+                    sorting, censored_period_ms=0.5
+                )
+                counts_after = sorting.count_num_spikes_per_unit()
+
+                dup_per_unit = {
+                    uid: int(counts_before[uid] - counts_after[uid])
+                    for uid in counts_before
+                    if counts_before[uid] != counts_after[uid]
+                }
+                n_dup_removed = sum(dup_per_unit.values())
+                n_total_before = int(sum(counts_before.values()))
+                pct = 100.0 * n_dup_removed / n_total_before if n_total_before else 0.0
+                print(
+                    f"Duplicated spikes (censored period 0.5 ms): removed "
+                    f"{n_dup_removed} of {n_total_before} spikes ({pct:.3f}%) "
+                    f"across {len(dup_per_unit)} unit(s)."
+                )
+
+                counts = counts_after
                 low_spike = {
                     uid: {
                         "reasons": [f"{int(n)} spike(s) < min {min_spikes}"],
@@ -132,11 +154,15 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
                                 for u, v in low_spike.items()
                             }
                         )
+                else:
+                    print(f"No units removed; {n_kept} remaining.")
+
+                # Rebuild if units OR spikes were removed, otherwise the analyzer
+                # would still contain the duplicated spikes
+                if n_removed > 0 or n_dup_removed > 0:
                     analyzer = rebuild_analyzer(
                         sorting, rec, analyzer_path, job_kwargs, output_folder
                     )
-                else:
-                    print(f"No units removed; {n_kept} remaining.")
 
                 # Stage 2: units with zero channels in the sparsity mask
                 bad = find_bad_units(analyzer, min_spikes, check_templates=False)
@@ -216,6 +242,8 @@ def postprocess(recording_path_, output_folder, params, time_master, step=2):
                     {
                         "min_spikes_per_unit": min_spikes,
                         "n_units_final": n_final,
+                        "censored_period_ms": 0.5,
+                        "n_duplicated_spikes_removed": n_dup_removed,
                         "removed": removed_log,
                     },
                     f,

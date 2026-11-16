@@ -67,8 +67,10 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
         print(f"Trimming recording to frames {start_frame}..{end_frame} "
             f"({start_frame / fs:.3f} s to {end_frame / fs:.3f} s)...")
         recording = recording.frame_slice(start_frame, end_frame)
+        recording.shift_times(-recording.sample_index_to_time(0))
         if use_sync:
             sync = sync.frame_slice(start_frame, end_frame)
+            sync.shift_times(-sync.sample_index_to_time(0))
 
     if use_sync:
         assert sync.get_num_samples() == recording.get_num_samples()
@@ -126,7 +128,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     print(
                         "NOTE: Temporarily splitting by shank to perform certain preprocessing steps."
                     )
-                    temporary_groups = recording.split_by("group")
+                    temporary_groups = group.split_by("group")
                 else:
                     temporary_groups = {group_name: group}
 
@@ -236,7 +238,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                             frac = (
                                 len(channels_to_remove) / temp_group.get_num_channels()
                             )
-                            if not is_custom_list & (frac > params_bad["bad_channel_limit"]):
+                            if not is_custom_list and frac > params_bad["bad_channel_limit"]:
                                 raise RuntimeError(
                                     f"Too many bad channels targeted for removal: "
                                     f"{len(channels_to_remove)}/{temp_group.get_num_channels()} "
@@ -424,13 +426,33 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
                             peaks = motion_info["peaks"]
 
+                            # identify channels containing detected peaks
+                            active_channel_indices = np.unique(peaks["channel_index"])
+                            active_channel_ids = group_pre_motion.channel_ids[active_channel_indices]
+
+                            print(
+                                f"Peak activity channels: {len(active_channel_ids)} / "
+                                f"{group_pre_motion.get_num_channels()}"
+                            )
+
+                            # create a recording containing only active channels
+                            group_peak_activity = group_pre_motion.select_channels(active_channel_ids)
+
+                            # remap peak channel indices to the selected recording's channel indices
+                            peaks_filtered = peaks.copy()
+                            peaks_filtered["channel_index"] = np.searchsorted(
+                                active_channel_indices,
+                                peaks["channel_index"],
+                            )
+
                             w = si.plot_peak_activity(
-                                group_pre_motion,
-                                peaks,
+                                group_peak_activity,
+                                peaks_filtered,
                                 bin_duration_s=None,
                                 with_interpolated_map=True,
                                 backend="matplotlib",
                             )
+
                             save_widget(w, peak_plot_path)
                             print(f"Peak Activity plot saved to:  {peak_plot_path}")
 

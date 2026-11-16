@@ -155,6 +155,8 @@ def main():
 
     time_master = {}
 
+    print(params)
+
     print()
     print("Inputs valid. All systems GO!")
     print()
