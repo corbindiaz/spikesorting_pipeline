@@ -32,6 +32,7 @@
         },
 
         "bad_channels": {
+            "skip": false,
             "similarity_threshold": [-0.5, 1.0], 
             "psd_hf_threshold": 0.02,
             "outside_threshold": -0.3,
@@ -43,6 +44,10 @@
         },
 
         "motion": {
+            "detect_threshold": 8.0,
+
+            "bin_s": 1.0,
+
             "n_rows_in_scale": 9.0,
             "step_over_scale": 0.32,
 
@@ -59,6 +64,9 @@
         }
     },
     "kilosort": {
+        "generate_summary_plots":true,
+        "generate_phy_unit_plots": true,
+        
         "do_correction": true,
         "dmin": null,
         "dminx": 32,

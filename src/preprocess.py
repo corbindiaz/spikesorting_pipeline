@@ -149,110 +149,113 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                     channel_labels = None
                     custom_channels = None
 
-                    if is_custom_list and not generate_diag:
-                        print(
-                            f"Skipping bad channel detection. Removing channels {remove_cfg} instead."
-                        )
-                        remove_cfg = ["imec0.ap#AP" + str(ch) for ch in remove_cfg]
-                        bad_channel_ids = [
-                            c for c in remove_cfg if c in temp_group.channel_ids
-                        ]
-                        custom_channels = bad_channel_ids
-
-                        # Create fallback channel_labels: 'good' by default, 'bad' for custom passed channels
-                        channel_labels = np.full(
-                            temp_group.get_num_channels(), "good", dtype="U5"
-                        )
-                        custom_mask = np.isin(temp_group.channel_ids, custom_channels)
-                        channel_labels[custom_mask] = "bad"
-
-                    else:
-                        if is_custom_list and generate_diag:
+                    if not params_bad['skip']:
+                        if is_custom_list and not generate_diag:
                             print(
-                                "Performing bad channel detection to generate diagnostics..."
+                                f"Skipping bad channel detection. Removing channels {remove_cfg} instead."
                             )
+                            remove_cfg = ["imec0.ap#AP" + str(ch) for ch in remove_cfg]
+                            bad_channel_ids = [
+                                c for c in remove_cfg if c in temp_group.channel_ids
+                            ]
+                            custom_channels = bad_channel_ids
+
+                            # Create fallback channel_labels: 'good' by default, 'bad' for custom passed channels
+                            channel_labels = np.full(
+                                temp_group.get_num_channels(), "good", dtype="U5"
+                            )
+                            custom_mask = np.isin(temp_group.channel_ids, custom_channels)
+                            channel_labels[custom_mask] = "bad"
+
                         else:
-                            print("Detecting bad channels...")
-
-                        # Detect IBL bad channels & SpikeInterface MAD noise
-                        bad_channel_ids, channel_labels, feats, si_mad_bad_ids = (
-                            detect_bad_channels_ibl(temp_group, params_bad)
-                        )
-                        bad = len(temp_group.channel_ids) - len(
-                            channel_labels[channel_labels == "good"]
-                        )
-                        print(f"Detected {bad} bad channel(s) via IBL...")
-
-                        # Save channel labels to CSV
-                        si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
-                        channel_label_csv = pd.DataFrame(
-                            {
-                                "channel_id": temp_group.channel_ids,
-                                "channel_label": channel_labels,
-                                "si_mad_noise": np.where(si_mad_mask, "noise", "good"),
-                            }
-                        )
-                        channel_label_path = (
-                            preprocessed_folder
-                            / f"{temp_group_name}_channel_labels.csv"
-                        )
-                        channel_label_csv.to_csv(channel_label_path, index=False)
-                        print(f"Channel labels saved to: {channel_label_path}")
-
-                    # Resolve target channels to remove
-                    if is_custom_list:
-                        channels_to_remove = [
-                            c for c in remove_cfg if c in temp_group.channel_ids
-                        ]
-                        custom_channels = channels_to_remove
-                    else:
-                        channels_to_remove = bad_channel_ids
-
-                    # Run diagnostics if enabled
-                    if generate_diag and feats is not None:
-                        bad_channels_diagnostic(
-                            temp_group,
-                            channel_labels,
-                            feats,
-                            plots_pre / "bad_channel_diagnostics",
-                            params_bad,
-                            name=str(temp_group_name),
-                            custom_star_channels=custom_channels,
-                        )
-
-                    # Save probe layout figure with thick borders on custom channels
-                    save_probe_figure(
-                        temp_group,
-                        plots_pre,
-                        f"{temp_group_name}_bad_channels_map",
-                        channel_labels=channel_labels,
-                        custom_channels=custom_channels,
-                    )
-                    print(
-                        f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}"
-                    )
-
-                    # Channel Removal Logic
-                    if remove_cfg:
-                        if len(channels_to_remove) > 0:
-                            frac = (
-                                len(channels_to_remove) / temp_group.get_num_channels()
-                            )
-                            if not is_custom_list and frac > params_bad["bad_channel_limit"]:
-                                raise RuntimeError(
-                                    f"Too many bad channels targeted for removal: "
-                                    f"{len(channels_to_remove)}/{temp_group.get_num_channels()} "
-                                    f"({frac:.1%}), exceeding limit of "
-                                    f"{params_bad['bad_channel_limit']:.1%}. "
-                                    f"Please increase 'bad_channel_limit' to override this message, "
-                                    f"or set 'remove_bad_channels' to False."
+                            if is_custom_list and generate_diag:
+                                print(
+                                    "Performing bad channel detection to generate diagnostics..."
                                 )
-                            print(
-                                f"Removing {len(channels_to_remove)} targeted channels..."
+                            else:
+                                print("Detecting bad channels...")
+
+                            # Detect IBL bad channels & SpikeInterface MAD noise
+                            bad_channel_ids, channel_labels, feats, si_mad_bad_ids = (
+                                detect_bad_channels_ibl(temp_group, params_bad)
                             )
-                            temp_group = temp_group.remove_channels(channels_to_remove)
+                            bad = len(temp_group.channel_ids) - len(
+                                channel_labels[channel_labels == "good"]
+                            )
+                            print(f"Detected {bad} bad channel(s) via IBL...")
+
+                            # Save channel labels to CSV
+                            si_mad_mask = np.isin(temp_group.channel_ids, si_mad_bad_ids)
+                            channel_label_csv = pd.DataFrame(
+                                {
+                                    "channel_id": temp_group.channel_ids,
+                                    "channel_label": channel_labels,
+                                    "si_mad_noise": np.where(si_mad_mask, "noise", "good"),
+                                }
+                            )
+                            channel_label_path = (
+                                preprocessed_folder
+                                / f"{temp_group_name}_channel_labels.csv"
+                            )
+                            channel_label_csv.to_csv(channel_label_path, index=False)
+                            print(f"Channel labels saved to: {channel_label_path}")
+
+                        # Resolve target channels to remove
+                        if is_custom_list:
+                            channels_to_remove = [
+                                c for c in remove_cfg if c in temp_group.channel_ids
+                            ]
+                            custom_channels = channels_to_remove
                         else:
-                            print("No channels to remove.")
+                            channels_to_remove = bad_channel_ids
+
+                        # Run diagnostics if enabled
+                        if generate_diag and feats is not None:
+                            bad_channels_diagnostic(
+                                temp_group,
+                                channel_labels,
+                                feats,
+                                plots_pre / "bad_channel_diagnostics",
+                                params_bad,
+                                name=str(temp_group_name),
+                                custom_star_channels=custom_channels,
+                            )
+
+                        # Save probe layout figure with thick borders on custom channels
+                        save_probe_figure(
+                            temp_group,
+                            plots_pre,
+                            f"{temp_group_name}_bad_channels_map",
+                            channel_labels=channel_labels,
+                            custom_channels=custom_channels,
+                        )
+                        print(
+                            f"Probe Map with detected channel labels saved to: {plots_pre / f'{temp_group_name}_bad_channels_map.png'}"
+                        )
+
+                        # Channel Removal Logic
+                        if remove_cfg:
+                            if len(channels_to_remove) > 0:
+                                frac = (
+                                    len(channels_to_remove) / temp_group.get_num_channels()
+                                )
+                                if not is_custom_list and frac > params_bad["bad_channel_limit"]:
+                                    raise RuntimeError(
+                                        f"Too many bad channels targeted for removal: "
+                                        f"{len(channels_to_remove)}/{temp_group.get_num_channels()} "
+                                        f"({frac:.1%}), exceeding limit of "
+                                        f"{params_bad['bad_channel_limit']:.1%}. "
+                                        f"Please increase 'bad_channel_limit' to override this message, "
+                                        f"or set 'remove_bad_channels' to False."
+                                    )
+                                print(
+                                    f"Removing {len(channels_to_remove)} targeted channels..."
+                                )
+                                temp_group = temp_group.remove_channels(channels_to_remove)
+                            else:
+                                print("No channels to remove.")
+                    else:
+                        print('Skipping bad channel detection entirely.')
 
                     params_band = params_pre["bandpass_filter"]
                     print("Bandpass filtering...")
@@ -353,10 +356,15 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
             estimate_motion_kwargs["win_step_um"] = win_step_um
             estimate_motion_kwargs["win_scale_um"] = win_scale_um
 
+            estimate_motion_kwargs['bin_s'] = params_motion['bin_s']
+
             print(f"Probe span: {dptp:.2f} µm")
             print(f"Electrode pitch: {pitch_um:.2f} µm")
             print(f"Motion window: {win_scale_um:.2f} µm")
             print(f"Motion window step: {win_step_um:.2f} µm")
+
+            detect_kwargs = {}
+            detect_kwargs['detect_threshold'] = params_motion['detect_threshold']
 
             with timed(preprocessing_time, "Motion"):
                 try:
@@ -367,6 +375,7 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
                         folder=motion_folder,
                         raise_error=False,
                         output_motion_info=True,
+                        detect_kwargs = detect_kwargs,
                         estimate_motion_kwargs=estimate_motion_kwargs,
                         **params["job_kwargs"],
                     )
