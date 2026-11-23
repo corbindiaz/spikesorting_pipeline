@@ -14,8 +14,14 @@ from kilosort.run_kilosort import close_logger
 from sklearn.preprocessing import StandardScaler
  
 from utils import timed
- 
-NON_KILOSORT_PARAM_KEYS = ("generate_summary_plots", "generate_phy_unit_plots", "keep_output")
+from utils import dredge_motion_correction
+
+NON_KILOSORT_PARAM_KEYS = (
+    "generate_summary_plots",
+    "generate_phy_unit_plots",
+    "keep_output",
+    "do_dredge_correction",
+)
  
 MIN_SPIKES_FOR_UNIT_PLOTS = 10
  
@@ -62,6 +68,17 @@ def sorter_kilosort(recording_path_, output_folder, params, time_master, step=1)
     generate_phy_unit_plots = bool(
         kilosort_params.get("generate_phy_unit_plots", False)
     )
+    
+    do_dredge_correction = bool(kilosort_params.get("do_dredge_correction", False))
+    if do_dredge_correction and kilosort_params.get("do_correction", False):
+        print(
+            "WARNING: both DREDge and Kilosort's own drift correction are enabled; "
+            "drift will be corrected twice. Consider setting do_correction=False."
+        )
+    if do_dredge_correction:
+        print("DREDge motion correction is enabled.")
+        print("DREDge motion correction will be applied to each preprocessed recording.")
+        
     # Everything except the plotting flags goes to the sorter
     sorter_params = {
         k: v for k, v in kilosort_params.items() if k not in NON_KILOSORT_PARAM_KEYS
@@ -97,6 +114,20 @@ def sorter_kilosort(recording_path_, output_folder, params, time_master, step=1)
                 recording = si.load(recording_path)
                 if step == 0:
                     print(recording)
+                    
+            # DREDge correction (lazy; the corrected recording is NOT saved)
+            if do_dredge_correction:
+                with timed(kilosort_time, "Dredge Motion"):
+                    print("Applying DREDge motion correction before Kilosort...")
+                    recording = dredge_motion_correction(
+                        recording,
+                        f"{group_name}_prekilosort",
+                        params["preprocess"]["motion"],
+                        params["job_kwargs"],
+                        # outside kilosort_group_folder, which run_sorter wipes
+                        kilosort_folder / "dredge_motion" / group_name,
+                        motion_plots_folder,
+                    )
  
             # Sorting
             with timed(kilosort_time, "Sorting"):
