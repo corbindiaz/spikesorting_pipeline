@@ -16,4 +16,4 @@ conda activate spikesort
 MY_ARG="$1"
 
 python --version
-python .../src/pipeline.py "$MY_ARG"
+python /gpfs/home/csd7358/spikesorting_pipeline/src/pipeline.py "$MY_ARG"

@@ -307,8 +307,6 @@ def preprocess(recording_path_, output_folder, params, time_master, step=0):
 
             # Motion
             if not params_pre["motion"]["skip"]:
-            # Motion
-            if not params_pre["motion"]["skip"]:
                 print(f"Performing motion correction for {recording_name}")
                 with timed(preprocessing_time, "Motion"):
                     group = dredge_motion_correction(

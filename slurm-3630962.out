@@ -1,0 +1,9 @@
+Python 3.11.18
+✅ ipywidgets available - interactive GUI ready
+Traceback (most recent call last):
+  File "/gpfs/home/csd7358/spikesorting_pipeline/src/pipeline.py", line 22, in <module>
+    from preprocess import preprocess
+  File "/gpfs/home/csd7358/spikesorting_pipeline/src/preprocess.py", line 311
+    if not params_pre["motion"]["skip"]:
+    ^
+IndentationError: expected an indented block after 'if' statement on line 309
