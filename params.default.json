@@ -13,7 +13,7 @@
     "verbose_inventory": false,
     "preprocess": {
         "sync_channel": true,
-        "split_by_shank": false,
+        "split_by_shank": true,
 
         "trimming": {
             "trim_recording": false,
@@ -37,7 +37,7 @@
             "psd_hf_threshold": 0.02,
             "outside_threshold": -0.3,
             "std_mad_threshold": 5.0,
-            "remove_bad_channels": true,
+            "remove_bad_channels": false,
             "bad_channel_limit": 0.1,      
             "generate_diagnostics": true,
             "debug_mode": false
@@ -65,16 +65,17 @@
         }
     },
     "kilosort": {
-        "do_dredge_correction": true,
-        
-        "keep_output":false,
+        "do_dredge_correction": false,
+
+        "keep_output":true,
         "generate_summary_plots":true,
         "generate_phy_unit_plots": true,
         
         "do_correction": true,
         "dmin": null,
         "dminx": 32,
-        "nearest_chans": 10
+        "nearest_chans": 10,
+        "ccg_threshold": 0.25
     },
     "postprocess": null,
     "export": {
