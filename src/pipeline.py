@@ -190,8 +190,15 @@ def main():
 
             step_start = time.perf_counter()
             try:
+                # --recording is the raw input for preprocess, but the
+                # preprocessed folder for a kilosort-first run. If preprocess ran
+                # earlier in this invocation, kilosort should use its output.
+                step_recording = args.recording
+                if step_name == "kilosort" and "preprocess" in args.steps[:i]:
+                    step_recording = None
+
                 result = step_function(
-                    recording_path_=args.recording,
+                    recording_path_=step_recording,
                     output_folder=args.output,
                     params=params,
                     time_master=time_master,

@@ -35,7 +35,11 @@ LABEL_COLORS = {"good": "tab:green", "mua": "tab:orange"}
  
  
 def sorter_kilosort(recording_path_, output_folder, params, time_master, step=1):
-    preprocessed_folder = output_folder / "preprocessed"
+    output_folder = Path(output_folder)
+    # Use the provided path if given, otherwise fall back to <output>/preprocessed
+    preprocessed_folder = (
+        Path(recording_path_) if recording_path_ else output_folder / "preprocessed"
+    )
     kilosort_folder = output_folder / "kilosort"
     analyzer_folder = output_folder / "analyzer"
     plots = output_folder / "plots"

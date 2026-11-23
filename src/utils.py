@@ -1,11 +1,18 @@
 import time
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
 
 import matplotlib
 import numpy as np
 import spikeinterface.full as si
+import spikeinterface.preprocessing as spre
+from spikeinterface.sortingcomponents.motion import interpolate_motion
 import zarr
+
+from pathlib import Path
+
+from visualization import plot_peak_localization, save_widget
 
 matplotlib.use("Agg")
 
@@ -137,6 +144,161 @@ def _patch_recording_dict(rec_dict, dtype=None, strip_sync_flag=True):
                 kwargs["dtype"] = dtype
                 changed = True
     return changed
+
+
+def dredge_motion_correction(
+    group,
+    recording_name,
+    params_motion,
+    job_kwargs,
+    motion_folder,
+    motion_plots_folder,
+):
+    """DREDge-fast motion estimation + (lazy) interpolation.
+
+    Returns the motion-corrected recording, or the input recording unchanged
+    if motion estimation fails. Nothing is written for the corrected
+    recording itself; only the motion cache and diagnostic plots are saved.
+    """
+    motion_folder = Path(motion_folder)
+    motion_plots_folder = Path(motion_plots_folder)
+    motion_folder.parent.mkdir(parents=True, exist_ok=True)
+    motion_plots_folder.mkdir(parents=True, exist_ok=True)
+
+    if params_motion["motion_overwrite"] and motion_folder.exists():
+        shutil.rmtree(motion_folder)
+
+    group_pre_motion = group
+
+    # Use the group's own channel locations (correct even if channels were removed)
+    pos = np.asarray(group.get_channel_locations())
+    y = pos[:, 1].astype(float)
+    dptp = float(np.ptp(y))
+
+    y_u = np.sort(np.unique(y))
+    dy = np.diff(y_u)
+    dy = dy[dy > params_motion["min_pitch_difference_um"]]
+
+    if len(dy) < 3:
+        pitch_um = dptp / max(1, len(y_u) - 1)
+    else:
+        pitch_um = float(np.median(dy))
+
+    win_scale_um = float(
+        np.clip(
+            params_motion["n_rows_in_scale"] * pitch_um,
+            params_motion["min_win_scale_um"],
+            params_motion["max_win_scale_fraction"] * dptp,
+        )
+    )
+
+    win_step_um = float(
+        np.clip(
+            params_motion["step_over_scale"] * win_scale_um,
+            max(
+                params_motion["min_win_step_um"],
+                params_motion["min_win_step_pitch_fraction"] * pitch_um,
+            ),
+            params_motion["max_win_step_fraction"] * dptp,
+        )
+    )
+
+    if win_step_um >= params_motion["max_step_scale_fraction"] * win_scale_um:
+        win_step_um = float(params_motion["fallback_step_over_scale"] * win_scale_um)
+
+    estimate_motion_kwargs = {
+        "win_step_um": win_step_um,
+        "win_scale_um": win_scale_um,
+        "bin_s": params_motion["bin_s"],
+    }
+    detect_kwargs = {"detect_threshold": params_motion["detect_threshold"]}
+
+    print(f"Probe span: {dptp:.2f} µm")
+    print(f"Electrode pitch: {pitch_um:.2f} µm")
+    print(f"Motion window: {win_scale_um:.2f} µm")
+    print(f"Motion window step: {win_step_um:.2f} µm")
+
+    try:
+        print("Computing DREDge-fast motion...")
+        motion_output = spre.compute_motion(
+            group,
+            preset="dredge_fast",
+            folder=motion_folder,
+            raise_error=False,
+            output_motion_info=True,
+            detect_kwargs=detect_kwargs,
+            estimate_motion_kwargs=estimate_motion_kwargs,
+            **job_kwargs,
+        )
+
+        motion, motion_info = None, None
+        if isinstance(motion_output, tuple):
+            motion, motion_info = motion_output
+        elif motion_output is not None:
+            motion = motion_output
+
+        if motion is not None:
+            print("Applying motion correction...")
+            group = interpolate_motion(group.astype("float32"), motion=motion)
+        else:
+            print("Motion computation failed; continuing without correction.")
+
+        if motion_info is not None:
+            print("Saving motion plots...")
+            try:
+                motion_plot_path = motion_plots_folder / f"{recording_name}_motion_correction.png"
+                probe_plot_path = motion_plots_folder / f"{recording_name}_peak_locations.png"
+                peak_plot_path = motion_plots_folder / f"{recording_name}_peak_activity_all.png"
+
+                locations = group.get_channel_locations()
+                depth_min = np.min(locations[:, 1])
+                depth_max = np.max(locations[:, 1]) * 1.1
+                fig = plt.figure(figsize=(14, 8))
+                si.plot_motion_info(
+                    motion_info,
+                    group,
+                    figure=fig,
+                    depth_lim=(depth_min, depth_max),
+                    color_amplitude=True,
+                    amplitude_cmap="inferno",
+                    scatter_decimate=10,
+                )
+                fig.savefig(motion_plot_path, dpi=150, bbox_inches="tight")
+                plt.close(fig)
+                print(f"Motion plot saved to: {motion_plot_path}")
+
+                plot_peak_localization(group_pre_motion, motion_info, probe_plot_path)
+                print(f"Peak locations plot saved to: {probe_plot_path}")
+
+                peaks = motion_info["peaks"]
+                active_channel_indices = np.unique(peaks["channel_index"])
+                active_channel_ids = group_pre_motion.channel_ids[active_channel_indices]
+                print(
+                    f"Peak activity channels: {len(active_channel_ids)} / "
+                    f"{group_pre_motion.get_num_channels()}"
+                )
+
+                group_peak_activity = group_pre_motion.select_channels(active_channel_ids)
+                peaks_filtered = peaks.copy()
+                peaks_filtered["channel_index"] = np.searchsorted(
+                    active_channel_indices, peaks["channel_index"]
+                )
+
+                w = si.plot_peak_activity(
+                    group_peak_activity,
+                    peaks_filtered,
+                    bin_duration_s=None,
+                    with_interpolated_map=True,
+                    backend="matplotlib",
+                )
+                save_widget(w, peak_plot_path)
+                print(f"Peak Activity plot saved to: {peak_plot_path}")
+            except Exception as e:
+                print(f"Error saving motion plots for {recording_name}: {e}")
+    except Exception as e:
+        print(f"Motion correction for {recording_name} failed: {e}")
+
+    return group
 
 
 def import_analyzer(analyzer_path, VERBOSE_INVENTORY=False, describe=True, *,

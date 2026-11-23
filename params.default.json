@@ -65,6 +65,8 @@
         }
     },
     "kilosort": {
+        "do_dredge_correction": true,
+        
         "keep_output":false,
         "generate_summary_plots":true,
         "generate_phy_unit_plots": true,
