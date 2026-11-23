@@ -1,0 +1,23 @@
+Python 3.11.18
+✅ ipywidgets available - interactive GUI ready
+================================================================================
+================================================================================
+                       WELCOME TO SPIKESORTING PIPELINE.                        
+================================================================================
+================================================================================
+Steps to run: ['kilosort']
+Preprocessed recording found. Using /gpfs/projects/p53239/preprocessed for sorting.
+{'job_kwargs': {'n_jobs': -1, 'progress_bar': True, 'pool_engine': 'thread', 'chunk_duration': '1s'}, 'diagnostic': {'print_time_computation_graph': True, 'save_terminal_pdf': False, 'save_terminal_txt': True}, 'verbose_inventory': False, 'preprocess': {'sync_channel': True, 'split_by_shank': False, 'trimming': {'trim_recording': True, 'start': 1000, 'end': None}, 'bandpass_filter': {'freq_min': 300, 'freq_max': 6000}, 'car': {'car_reference': 'global', 'car_operator': 'median'}, 'bad_channels': {'skip': True, 'similarity_threshold': [-0.5, 1.0], 'psd_hf_threshold': 0.02, 'outside_threshold': -0.3, 'std_mad_threshold': 5.0, 'remove_bad_channels': False, 'bad_channel_limit': 0.1, 'generate_diagnostics': True, 'debug_mode': False}, 'motion': {'detect_threshold': 8.0, 'bin_s': 1.0, 'n_rows_in_scale': 9.0, 'step_over_scale': 0.32, 'max_win_step_fraction': 0.15, 'max_win_scale_fraction': 0.15, 'min_win_scale_um': 40.0, 'min_win_step_um': 6.0, 'min_pitch_difference_um': 0.05, 'min_win_step_pitch_fraction': 0.5, 'max_step_scale_fraction': 0.55, 'fallback_step_over_scale': 0.35, 'motion_overwrite': True, 'skip': True}}, 'kilosort': {'do_dredge_correction': True, 'keep_output': True, 'generate_summary_plots': True, 'generate_phy_unit_plots': True, 'do_correction': True, 'dmin': None, 'dminx': 32, 'nearest_chans': 10, 'ccg_threshold': 0.2}, 'postprocess': None, 'export': {'phy': {'qm_column_order': None, 'tm_column_order': None, 'export_quality_metrics': True, 'export_template_metrics': True, 'test_phy': False, 'compute_pc_features': True, 'compute_amplitudes': True, 'copy_binary': True, 'use_relative_path': True, 'remove_if_exists': True, 'progress_bar': True, 'verbose_phy': True}, 'bombcell': {'save_unit_plots': True, 'save_plot_details': False}}, 'curation': None}
+
+Inputs valid. All systems GO!
+
+================================================================================
+                             RUNNING STEP: kilosort                             
+================================================================================
+Traceback (most recent call last):
+  File "/gpfs/home/csd7358/spikesorting_pipeline/src/pipeline.py", line 390, in <module>
+    main()
+  File "/gpfs/home/csd7358/spikesorting_pipeline/src/pipeline.py", line 183, in main
+    warnings.filterwarnings(
+    ^^^^^^^^
+NameError: name 'warnings' is not defined. Did you mean: 'Warning'?
