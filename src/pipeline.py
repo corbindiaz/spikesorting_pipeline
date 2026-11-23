@@ -123,9 +123,14 @@ def main():
                 f"Recording input given. Using recording at {args.recording} for preprocessing."
             )
     elif first_step == "kilosort":
+        # If --recording is given, it is the preprocessed recording folder;
+        # otherwise fall back to <output>/preprocessed
+        preprocess_folder = (
+            args.recording if args.recording is not None else args.output / "preprocessed"
+        )
         if not preprocess_folder.exists():
             parser.error(
-                f"--Preprocessed recording must exist as {preprocess_folder} to run sorting."
+                f"Preprocessed recording must exist at {preprocess_folder} to run sorting."
             )
         else:
             print(

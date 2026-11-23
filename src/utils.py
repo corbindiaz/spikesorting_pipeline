@@ -95,7 +95,7 @@ def _locate_raw_file(rec, data_path):
             p = Path(rec.get_binary_description()["file_paths"][0])
             if p.is_file():
                 return p
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     if data_path is None:
@@ -125,6 +125,7 @@ def _locate_raw_file(rec, data_path):
         )
     return candidates[0]
 
+
 def _patch_recording_dict(rec_dict, dtype=None, strip_sync_flag=True):
     changed = False
     for d in _walk(rec_dict):
@@ -139,8 +140,15 @@ def _patch_recording_dict(rec_dict, dtype=None, strip_sync_flag=True):
     return changed
 
 
-def import_analyzer(analyzer_path, VERBOSE_INVENTORY=False, describe=True, *,
-                    data_path=None, dtype=None, sync_channel=False):
+def import_analyzer(
+    analyzer_path,
+    VERBOSE_INVENTORY=False,
+    describe=True,
+    *,
+    data_path=None,
+    dtype=None,
+    sync_channel=False,
+):
     """
     Load a SpikeInterface analyzer from a zarr folder.
 
@@ -236,7 +244,7 @@ def print_analyzer_inventory(analyzer, title="Analyzer inventory"):
         saved = list(analyzer.get_saved_extension_names())
         if saved:
             print("Extensions (saved on disk):", saved)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     sorting = analyzer.sorting
@@ -285,7 +293,7 @@ def print_analyzer_inventory(analyzer, title="Analyzer inventory"):
         dfm = analyzer.get_metrics_extension_data()
         if dfm is not None and hasattr(dfm, "columns") and len(dfm.columns):
             print("get_metrics_extension_data() columns:", list(dfm.columns))
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     print("=" * 60 + "\n")
