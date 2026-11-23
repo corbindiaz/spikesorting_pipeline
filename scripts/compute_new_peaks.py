@@ -3,6 +3,7 @@ import ast
 import csv
 import re
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -47,9 +48,35 @@ def write_tsv(path: Path, header: str, ids, values, fmt):
             w.writerow([int(cid), fmt(v)])
 
 
+def progress(iterable, total, desc):
+    """Progress bar: uses tqdm if installed, otherwise a simple built-in bar."""
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        tqdm = None
+
+    if tqdm is not None:
+        yield from tqdm(iterable, total=total, desc=desc, unit="unit")
+        return
+
+    t0 = time.time()
+    width = 30
+    for i, item in enumerate(iterable, 1):
+        yield item  # bar is updated after the loop body finishes for this item
+        frac = i / total
+        filled = int(width * frac)
+        elapsed = time.time() - t0
+        eta = elapsed / frac - elapsed if frac > 0 else 0
+        sys.stderr.write(
+            f"\r{desc} [{'#' * filled}{'-' * (width - filled)}] "
+            f"{i}/{total} ({frac:6.1%}) elapsed {elapsed:5.0f}s ETA {eta:5.0f}s"
+        )
+        sys.stderr.flush()
+    sys.stderr.write("\n")
+
+
 def mean_waveform(dat, spike_samples, n_pre, n_post, pad, sos, valid_chans):
-    """Average filtered waveform (time x len(valid_chans)) over the given spikes.
-    """
+    """Average filtered waveform (time x len(valid_chans)) over the given spikes."""
     n_total = dat.shape[0]
     total = np.zeros((n_pre + n_post + 1, len(valid_chans)), dtype=np.float64)
     n_used = 0
@@ -57,7 +84,7 @@ def mean_waveform(dat, spike_samples, n_pre, n_post, pad, sos, valid_chans):
         start = s - pad
         stop = s + n_post + pad + 1
         if start < 0 or stop > n_total:
-            continue  # too close to file edges
+            continue  # safety net; edge spikes are normally removed beforehand
         raw = np.asarray(dat[start:stop, :][:, valid_chans], dtype=np.float64)
         filt = sosfiltfilt(sos, raw, axis=0)
         # spike sits at index `pad`; keep [-n_pre, +n_post]
@@ -131,8 +158,8 @@ def main():
         "--max-spikes",
         type=int,
         default=500,
-        help="max spikes per cluster; randomly subsampled if exceeded, "
-        "otherwise all spikes are used",
+        help="max spikes per unit; randomly subsampled if exceeded, "
+        "otherwise all usable spikes are used",
     )
     ap.add_argument("--pre", type=int, default=40, help="samples before spike")
     ap.add_argument("--post", type=int, default=60, help="samples after spike")
@@ -189,6 +216,7 @@ def main():
     if len(labels) != len(spike_times):
         sys.exit("spike_times and cluster labels have different lengths")
     cluster_ids = np.unique(labels)
+    print(f"Processing {len(cluster_ids)} units (every unit, up to {args.max_spikes} spikes each)")
 
     ### filtering and preprocessing
     sos = butter(3, np.array(args.band) / (fs / 2), btype="bandpass", output="sos")
@@ -196,31 +224,37 @@ def main():
     min_isi = round(0.001 * fs)  # 1 ms
     rng = np.random.default_rng(args.seed)
 
-    out_ch, out_amp = [], []
-    for i, cid in enumerate(cluster_ids, 1):
+    # Spikes whose padded window would run off either end of the file can't be used.
+    lo = pad
+    hi = n_samples - (args.post + pad + 1)
+
+    out_ch, out_amp, out_nused = [], [], []
+    warnings = []
+    for cid in progress(cluster_ids, total=len(cluster_ids), desc="Peak/amplitude"):
         st = np.sort(spike_times[labels == cid])
         # drop duplicate detections within 1 ms of the previous spike
         if st.size > 1:
             st = st[np.concatenate(([True], np.diff(st) >= min_isi))]
-        # subsample only if the unit has more than max_spikes spikes
+        # remove spikes too close to the file edges *before* subsampling, so every
+        # unit gets as many usable spikes as possible (up to max_spikes)
+        st = st[(st >= lo) & (st <= hi)]
+        # subsample only if the unit has more than max_spikes usable spikes
         if st.size > args.max_spikes:
             st = np.sort(rng.choice(st, args.max_spikes, replace=False))
 
-        mwf, n_used = mean_waveform( # noqa: RUF059
+        mwf, n_used = mean_waveform(
             dat, st, args.pre, args.post, pad, sos, valid_chans
-        )  
+        )
+        out_nused.append(n_used)
         if mwf is None:
-            print(f"[warn] cluster {cid}: no usable spikes")
+            warnings.append(f"cluster {cid}: no usable spikes")
             out_ch.append(-1)
             out_amp.append(np.nan)
             continue
 
-        col, peak_val, valley_val, amp = peak_and_amplitude(mwf)  # noqa: RUF059
+        col, _peak_val, _valley_val, amp = peak_and_amplitude(mwf)
         out_ch.append(int(valid_chans[col]))  # back to .dat channel index (0-based)
         out_amp.append(amp * args.scale)
-
-        if i % 25 == 0 or i == len(cluster_ids):
-            print(f"  {i}/{len(cluster_ids)} clusters done")
 
     write_tsv(
         folder / "cluster_peak.tsv", "peak", cluster_ids, out_ch, lambda v: str(int(v))
@@ -232,7 +266,17 @@ def main():
         out_amp,
         lambda v: "nan" if np.isnan(v) else f"{v:.4f}",
     )
-    print(f"Saved {folder / 'cluster_p.tsv'}")
+
+    n_used_arr = np.array(out_nused)
+    print(
+        f"Spikes used per unit: min {n_used_arr.min()}, "
+        f"median {int(np.median(n_used_arr))}, max {n_used_arr.max()}"
+    )
+    n_low = int((n_used_arr < args.max_spikes).sum())
+    print(f"{n_low} units had fewer than {args.max_spikes} usable spikes (all used)")
+    for w in warnings:
+        print(f"[warn] {w}")
+    print(f"Saved {folder / 'cluster_peak.tsv'}")
     print(f"Saved {folder / 'cluster_peakAmplitude.tsv'}")
 
 
