@@ -60,7 +60,8 @@
             "max_step_scale_fraction": 0.55,
             "fallback_step_over_scale": 0.35,
 
-            "motion_overwrite": true
+            "motion_overwrite": true,
+            "skip": false
         }
     },
     "kilosort": {
